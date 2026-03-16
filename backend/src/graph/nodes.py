@@ -4,10 +4,11 @@ import re
 import logging
 from typing import Any, Dict, List
 
-from Langchain_openai import AzureChatOpenAI
+from langchain_openai import AzureChatOpenAI
 from langchain_community.vectorstores import AzureSearch    
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 # import state schema 
 
@@ -54,7 +55,7 @@ def index_video_node(state: VideoAuditState) -> dict[str, Any]:
             os.remove(local_path)
 
         # wait
-        raw_insights = vi_service.waitforprocessing(azure_video_id)
+        raw_insights = vi_service.wait_for_processing(azure_video_id)
         # extract 
         clean_data = vi_service.extract_data(raw_insights)
         logger.info(f"---[NODE: Indexer] Extraction Complete------")
@@ -93,13 +94,10 @@ def audio_content_node(state: VideoAuditState) -> Dict[str, Any]:
         temperature=0.0
     )
 
-    # 2. Setup embeddings
-    embed_model = AzureOpenAIEmbeddings(
-        azure_deployment=os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
-        openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
-        openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-        chunk_size=16
+    # 2. Setup Gemini embeddings
+    embed_model = GoogleGenerativeAIEmbeddings(
+        model="models/embedding-001",
+        google_api_key=os.getenv("GEMINI_API_KEY"),
     )
    
     

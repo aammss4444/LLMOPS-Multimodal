@@ -1,153 +1,218 @@
-# Multimodal_LLMOPS - Project Documentation
+# Multimodal LLMOps - Project Documentation
 
-## 1) Project Overview
+## 1. Project Overview
 
-`Multimodal_LLMOPS` is a Python-based scaffold for a multimodal LLMOps backend.  
-Current implementation status is early-stage: directory structure and dependencies are defined, while most backend modules are placeholders (empty files).
+`Multimodal LLMOps` is a Python-based backend initiative for auditing video content against compliance/policy requirements using multimodal inputs.
 
-Primary workspace path:
-
+Primary workspace:
 `D:\Projects\Multimodal_LLMOPS`
 
-## 2) Architecture (Current + Intended)
+Primary goal:
+- Ingest video input
+- Extract transcript and OCR/text signals
+- Run LLM/RAG-based compliance checks
+- Produce structured compliance issues and final report
 
-### Current architecture state
+Current phase:
+- Early implementation with working state schema and partial graph-node logic.
 
-- Root-level Python project configured with `pyproject.toml` and `uv.lock`.
-- Backend code separated under `backend/`.
-- API, graph/workflow, and services layers are present as folders/files but currently unimplemented.
-- Document assets (PDFs) are stored in `backend/data/`.
+## 2. Latest Architecture Snapshot
 
-### Intended logical architecture (based on structure)
+### 2.1 Layered design
 
-1. API Layer (`backend/src/api/`)
-   - Hosts FastAPI server endpoints.
-   - Exposes interfaces for ingestion and query workflows.
-2. Workflow/Orchestration Layer (`backend/src/graph/`)
-   - LangGraph/LangChain-based nodes and state transitions.
-   - Coordinates multimodal processing pipeline.
-3. Service Layer (`backend/src/services/`)
-   - External service adapters (e.g., indexing, retrieval, storage integrations).
-4. Data/Assets Layer (`backend/data/`)
-   - Source documents/media used for indexing and retrieval experiments.
-5. Scripts Layer (`backend/scripts/`)
-   - Operational scripts (e.g., indexing jobs, ingestion utilities).
-6. Tests Layer (`backend/tests/`)
-   - Unit/integration tests for API, graph nodes, and services.
+1. API layer (`backend/src/api/`)
+- Intended FastAPI service entrypoint and telemetry hooks.
+- Current files exist but are not implemented yet.
 
-## 3) Frameworks & Technologies Used
+2. Graph orchestration layer (`backend/src/graph/`)
+- Core of the processing workflow.
+- `state.py` defines shared execution state (`VideoAuditState`).
+- `nodes.py` contains partial node logic for indexing and content auditing.
+- `workflow.py` defines graph edges and execution order.
 
-From `pyproject.toml` dependencies:
+3. Services layer (`backend/src/services/`)
+- Intended for concrete external integrations (e.g., Azure Video Indexer adapter).
+- Files exist; implementation pending.
 
-### Backend framework
+4. Scripts layer (`backend/scripts/`)
+- Intended operational tasks such as indexing/ingestion scripts.
+- Current script file is placeholder.
 
-- `FastAPI`
-- `Uvicorn`
+5. Data layer (`backend/data/`)
+- Source policy/reference documents currently stored as PDFs.
 
-### LLM / orchestration
+6. Test layer (`backend/tests/`)
+- Reserved for unit/integration tests.
 
+### 2.2 Workflow intent (from current code)
+
+Target pipeline represented in `workflow.py`:
+- `index_video` -> `audio_content_audit` -> `visual_compliance_audit` -> `END`
+
+The graph is intended to use `VideoAuditState` across all transitions.
+
+## 3. Code Status (Latest)
+
+### 3.1 Implemented or partially implemented
+
+- `backend/src/graph/state.py`
+  - Defines `ComplianceIssue` and `VideoAuditState` `TypedDict` schemas.
+  - Uses `Annotated[List[...], operator.add]` for aggregating issues/errors across nodes.
+
+- `backend/src/graph/nodes.py`
+  - Contains partial node implementation:
+    - `index_video_node(...)`: download/upload/extract flow shape with logging and error handling.
+    - `audio_content_node(...)`: partial LLM and embeddings setup for compliance audit.
+  - Includes references to Azure OpenAI + Azure Search style RAG setup.
+
+- `backend/src/graph/workflow.py`
+  - Declares LangGraph assembly and directed edges for the compliance flow.
+
+### 3.2 Placeholder/empty modules
+
+- `backend/src/api/server.py`
+- `backend/src/api/telementry.py`
+- `backend/src/services/video_indexer.py`
+- `backend/scripts/index_document.py`
+- `backend/src/services/__init__.py`
+- `backend/src/graph/__init__.py`
+
+## 4. Tools and Technologies Used
+
+## 4.1 Core runtime/tooling
+
+- Python `>=3.12`
+- `uv` for dependency and lock management (`pyproject.toml`, `uv.lock`)
+- Virtual environment in `.venv/`
+
+### 4.2 Backend and orchestration
+
+- `fastapi`
+- `uvicorn`
+- `langgraph`
 - `langchain`
 - `langchain-community`
 - `langchain-openai`
-- `langgraph`
+- `langchain-google-genai`
 - `langsmith`
 
-### Data / document processing
+### 4.3 Cloud, observability, and integrations
+
+- `azure-identity`
+- `azure-storage-blob`
+- `azure-search-documents`
+- `azure-monitor-opentelemetry`
+- `opentelemetry-instrumentation-fastapi`
+
+### 4.4 Data, retrieval, and utility stack
 
 - `pandas`
 - `pypdf`
 - `yt-dlp`
 - `firecrawl-py`
-
-### Cloud / search / storage / observability
-
-- `azure-identity`
-- `azure-search-documents`
-- `azure-storage-blob`
-- `azure-monitor-opentelemetry`
-- `opentelemetry-instrumentation-fastapi`
-
-### Database / caching / HTTP / config
-
-- `sqlalchemy`
-- `psycopg2-binary` (PostgreSQL driver)
-- `redis`
 - `requests`
 - `python-dotenv`
 - `pydantic`
+- `redis`
+- `sqlalchemy`
+- `psycopg2-binary`
+- `streamlit`
 
-## 4) Tooling Used in Project
-
-### Package & environment management
-
-- `uv` (lock file: `uv.lock`)
-- Virtual environment in `.venv/`
-
-### Python runtime
-
-- Python `>=3.12` (from `pyproject.toml`)
-- `.python-version` present
-
-### Project metadata/config
-
-- `pyproject.toml` as primary project/dependency config
-
-## 5) Directory and File Map
+## 5. Current File Map
 
 ```text
 D:\Projects\Multimodal_LLMOPS
-|-- .env
+|-- .env.example
+|-- .gitignore
 |-- .python-version
+|-- README.md
+|-- PROJECT_DOCUMENTATION.md
 |-- main.py
 |-- pyproject.toml
-|-- README.md
 |-- uv.lock
-|-- PROJECT_DOCUMENTATION.md
-|-- .venv\                             # local virtual environment
-`-- backend\
-    |-- data\
+`-- backend/
+    |-- data/
     |   |-- 1001a-influencer-guide-508_1.pdf
     |   `-- youtube-ad-specs.pdf
-    |-- scripts\
+    |-- scripts/
     |   `-- index_document.py
-    |-- src\
-    |   |-- api\
+    |-- src/
+    |   |-- api/
     |   |   |-- server.py
     |   |   `-- telementry.py
-    |   |-- graph\
+    |   |-- graph/
     |   |   |-- __init__.py
     |   |   |-- nodes.py
     |   |   |-- state.py
     |   |   `-- workflow.py
-    |   `-- services\
+    |   `-- services/
     |       |-- __init__.py
     |       `-- video_indexer.py
-    `-- tests\
+    `-- tests/
 ```
 
-## 6) Module Status Notes
+## 6. Configuration and Environment Variables
 
-Current files with implementation content:
+Values are defined by `.env` (template in `.env.example`).
 
-- `main.py` (simple hello-world entrypoint)
+### 6.1 LLM and embeddings
 
-Current placeholder/empty files:
+- `AZURE_OPENAI_API_KEY`
+- `AZURE_OPENAI_ENDPOINT`
+- `AZURE_OPENAI_API_VERSION`
+- `AZURE_OPENAI_CHAT_DEPLOYMENT`
+- `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`
+- `GEMINI_API_KEY`
 
-- `backend/scripts/index_document.py`
-- `backend/src/api/server.py`
-- `backend/src/api/telementry.py`
-- `backend/src/graph/nodes.py`
-- `backend/src/graph/state.py`
-- `backend/src/graph/workflow.py`
-- `backend/src/services/video_indexer.py`
-- `backend/src/services/__init__.py`
-- `backend/src/graph/__init__.py`
+### 6.2 Search and knowledge base
 
-## 7) Suggested Next Build Steps
+- `AZURE_SEARCH_ENDPOINT`
+- `AZURE_SEARCH_API_KEY`
+- `AZURE_SEARCH_INDEX_NAME`
 
-1. Implement `backend/src/api/server.py` with a minimal FastAPI app and health endpoint.
-2. Define graph state model in `backend/src/graph/state.py` using Pydantic.
-3. Add first runnable node(s) in `backend/src/graph/nodes.py` and compile graph in `workflow.py`.
-4. Implement indexing pipeline in `backend/scripts/index_document.py`.
-5. Add tests under `backend/tests/` for API and workflow modules.
+### 6.3 Video indexer and Azure infra
 
+- `AZURE_STORAGE_CONNECTION_STRING`
+- `AZURE_VI_NAME`
+- `AZURE_VI_LOCATION`
+- `AZURE_VI_ACCOUNT_ID`
+- `AZURE_SUBSCRIPTION_ID`
+- `AZURE_RESOURCE_GROUP`
+
+### 6.4 Tracing and monitoring
+
+- `APPLICATIONSINIGHTS_CONNECTION_STRING`
+- `LANGCHAIN_TRACING_V2`
+- `LANGCHAIN_ENDPOINT`
+- `LANGCHAIN_API_KEY`
+- `LANCHAIN_PROJECT_NAME`
+
+## 7. Known Gaps and Risks
+
+- `nodes.py` currently has unresolved import/reference mismatches (for example naming/casing mismatches and missing symbols), so end-to-end execution is not yet stable.
+- `workflow.py` references node function names that differ from currently implemented names in `nodes.py`.
+- API/server and service adapter modules are not yet implemented.
+- No automated tests are present yet.
+
+## 8. Recommended Next Steps
+
+1. Stabilize graph execution:
+- Align function names between `nodes.py` and `workflow.py`.
+- Fix imports for Azure OpenAI classes and complete node return schemas.
+
+2. Implement service adapters:
+- Build `VideoIndexerService` in `backend/src/services/video_indexer.py`.
+
+3. Build API entrypoint:
+- Implement `backend/src/api/server.py` with health and audit trigger endpoints.
+
+4. Add observability wiring:
+- Implement telemetry setup in `backend/src/api/telementry.py`.
+
+5. Add tests:
+- Unit tests for state/node behavior.
+- Integration test for workflow compile/execute path.
+
+6. Add developer docs:
+- Local runbook (dev setup, env variables, troubleshooting).
+- API contract examples (request/response payloads).

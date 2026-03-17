@@ -1,0 +1,147 @@
+﻿uv : D:\Projects\Multim
+odal_LLMOPS\.venv\Lib\s
+ite-packages\requests\_
+_init__.py:113: Request
+sDependencyWarning: 
+urllib3 (2.6.3) or 
+chardet (7.1.0)/charset
+_normalizer (3.4.6) 
+doesn't match a 
+supported version!
+At line:1 char:1
++ uv run python 
+debug_paddle.py > debug
+_paddle_output.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~
+    + CategoryInfo     
+         : NotSpecifi  
+  ed: (D:\Projects\M   
+ ul...ported versio    
+n!:String) [], Rem    
+oteException
+    + FullyQualifiedEr 
+   rorId : NativeComm  
+  andError
+ 
+  warnings.warn(
+[33mChecking 
+connectivity to the 
+model hosters, this 
+may take a while. To 
+bypass this check, set 
+`PADDLE_PDX_DISABLE_MOD
+EL_SOURCE_CHECK` to 
+`True`.[0m
+Traceback (most recent 
+call last):
+  File "D:\Projects\Mul
+timodal_LLMOPS\debug_pa
+ddle.py", line 11, in 
+<module>
+    import paddleocr
+  File "D:\Projects\Mul
+timodal_LLMOPS\.venv\Li
+b\site-packages\paddleo
+cr\__init__.py", line 
+15, in <module>
+    from paddlex.infere
+nce.utils.benchmark 
+import benchmark
+  File "D:\Projects\Mul
+timodal_LLMOPS\.venv\Li
+b\site-packages\paddlex
+\__init__.py", line 
+49, in <module>
+    from .inference 
+import 
+create_pipeline, 
+create_predictor
+  File "D:\Projects\Mul
+timodal_LLMOPS\.venv\Li
+b\site-packages\paddlex
+\inference\__init__.py"
+, line 17, in <module>
+    from .pipelines 
+import 
+create_pipeline, 
+load_pipeline_config
+  File "D:\Projects\Mul
+timodal_LLMOPS\.venv\Li
+b\site-packages\paddlex
+\inference\pipelines\__
+init__.py", line 23, 
+in <module>
+    from 
+.attribute_recognition 
+import (
+  File "D:\Projects\Mul
+timodal_LLMOPS\.venv\Li
+b\site-packages\paddlex
+\inference\pipelines\at
+tribute_recognition\__i
+nit__.py", line 15, in 
+<module>
+    from .pipeline 
+import PedestrianAttrib
+uteRecPipeline, Vehicle
+AttributeRecPipeline
+Python version: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+CWD: D:\Projects\Multimodal_LLMOPS
+Files in CWD: ['.env', '.git', '.gitignore', '.python-version', '.venv', 'audit_result.json', 'audit_result_final.json', 'audit_result_success.json', 'AzureCLI.msi', 'backend', 'debug_import.py', 'debug_output.txt', 'debug_paddle.py', 'debug_paddle_output.txt', 'diagnose_imports.py', 'diagnostic_output.txt', 'full_traceback.txt', 'main.py', 'PROJECT_DOCUMENTATION.md', 'pyproject.toml', 'README.md', 'temp_audit_video.mp4', 'trace_imports.py', 'trace_log.txt', 'uv.lock']
+sys.path: ['D:\\Projects\\Multimodal_LLMOPS', 'C:\\Users\\ameyp\\AppData\\Local\\Programs\\Python\\Python312\\python312.zip', 'C:\\Users\\ameyp\\AppData\\Local\\Programs\\Python\\Python312\\DLLs', 'C:\\Users\\ameyp\\AppData\\Local\\Programs\\Python\\Python312\\Lib', 'C:\\Users\\ameyp\\AppData\\Local\\Programs\\Python\\Python312', 'D:\\Projects\\Multimodal_LLMOPS\\.venv', 'D:\\Projects\\Multimodal_LLMOPS\\.venv\\Lib\\site-packages', 'D:\\Projects\\Multimodal_LLMOPS\\.venv\\Lib\\site-packages\\win32', 'D:\\Projects\\Multimodal_LLMOPS\\.venv\\Lib\\site-packages\\win32\\lib', 'D:\\Projects\\Multimodal_LLMOPS\\.venv\\Lib\\site-packages\\Pythonwin']
+
+Attempting import paddleocr...
+  File "D:\Projects\Mul
+timodal_LLMOPS\.venv\Li
+b\site-packages\paddlex
+\inference\pipelines\at
+tribute_recognition\pip
+eline.py", line 27, in 
+<module>
+    from ..components 
+import CropByBoxes
+  File "D:\Projects\Mul
+timodal_LLMOPS\.venv\Li
+b\site-packages\paddlex
+\inference\pipelines\co
+mponents\__init__.py", 
+line 29, in <module>
+    from 
+.retriever.base import 
+BaseRetriever
+  File "D:\Projects\Mul
+timodal_LLMOPS\.venv\Li
+b\site-packages\paddlex
+\inference\pipelines\co
+mponents\retriever\__in
+it__.py", line 15, in 
+<module>
+    from 
+.openai_bot_retriever 
+import 
+OpenAIBotRetriever
+  File "D:\Projects\Mul
+timodal_LLMOPS\.venv\Li
+b\site-packages\paddlex
+\inference\pipelines\co
+mponents\retriever\open
+ai_bot_retriever.py", 
+line 16, in <module>
+    from .base import 
+BaseRetriever
+  File "D:\Projects\Mul
+timodal_LLMOPS\.venv\Li
+b\site-packages\paddlex
+\inference\pipelines\co
+mponents\retriever\base
+.py", line 25, in 
+<module>
+    from langchain.docs
+tore.document import 
+Document
+ModuleNotFoundError: 
+No module named 
+'langchain.docstore'
+

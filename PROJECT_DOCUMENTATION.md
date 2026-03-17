@@ -55,18 +55,18 @@ The following diagram illustrates the data flow from video ingestion to the fina
 
 ```mermaid
 graph TD
-    User[User Request] --> FastAPI[FastAPI Server]
-    FastAPI --> LG[LangGraph Orchestrator]
+    User["User Request"] --> FastAPI["FastAPI Server"]
+    FastAPI --> LG["LangGraph Orchestrator"]
     
-    LG --> Node1[Video Indexer Node]
-    Node1 --> Node2[Audio Auditor Node]
-    Node2 --> Node3[Visual Auditor Node]
+    LG --> Node1["Video Indexer Node"]
+    Node1 --> Node2["Audio Auditor Node"]
+    Node2 --> Node3["Visual Auditor Node"]
     
-    Node1 --- AVI[Azure Video Indexer]
-    Node2 --- Qdrant[(Qdrant Vector DB)]
-    Node2 --- GPT[Azure OpenAI]
+    Node1 --- AVI["Azure Video Indexer"]
+    Node2 --- Qdrant["Qdrant Vector DB"]
+    Node2 --- GPT["Azure OpenAI"]
     
-    Node3 --> Report[JSON Audit Report]
+    Node3 --> Report["JSON Audit Report"]
     Report --> FastAPI
 ```
 

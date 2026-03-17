@@ -10,18 +10,18 @@ The system follows a modular, layer-based architecture designed for multimodal d
 
 ```mermaid
 graph TD
-    User[User/Client] --> API_Call[REST API Request]
-    API_Call --> SVR[Server: server.py]
-    SVR --> ORCH[LangGraph Orchestrator]
+    User["User/Client"] --> API_Call["REST API Request"]
+    API_Call --> SVR["Server: server.py"]
+    SVR --> ORCH["LangGraph Orchestrator"]
 
-    ORCH --- AVI_SVC[Azure Video Indexer Service]
-    ORCH --- EXT_SVC[Hybrid PDF Extractor]
+    ORCH --- AVI_SVC["Azure Video Indexer Service"]
+    ORCH --- EXT_SVC["Hybrid PDF Extractor"]
     
-    EXT_SVC --> EMB[Gemini Embeddings]
-    EMB --> QDR[(Qdrant Vector DB)]
+    EXT_SVC --> EMB["Gemini Embeddings"]
+    EMB --> QDR["Qdrant Vector DB"]
     
     ORCH --- QDR
-    ORCH --- LLM[Azure OpenAI / GPT-4o]
+    ORCH --- LLM["Azure OpenAI / GPT-4o"]
 ```
 
 ---
@@ -56,10 +56,10 @@ classDiagram
         +similarity_search()
     }
 
-    Server --> Workflow : triggers
-    Workflow --> VideoIndexer : Index_Video_Node
-    Workflow --> VectorStore : Audio_Auditor_Node
-    DocumentProcessor --> VectorStore : Indexing_Script
+    Server --> Workflow : "triggers"
+    Workflow --> VideoIndexer : "Index_Video_Node"
+    Workflow --> VectorStore : "Audio_Auditor_Node"
+    DocumentProcessor --> VectorStore : "Indexing_Script"
 ```
 
 ---

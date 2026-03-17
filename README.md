@@ -1,6 +1,6 @@
 # Multimodal LLMOps
 
-Python backend project for multimodal video compliance auditing with LangGraph-based orchestration, Azure services, and LLM-driven analysis.
+Python backend project for multimodal video compliance auditing with LangGraph-based orchestration and LLM-driven analysis.
 
 Project root: `D:\Projects\Multimodal_LLMOPS`
 
@@ -18,7 +18,7 @@ Project root: `D:\Projects\Multimodal_LLMOPS`
 - API framework: FastAPI + Uvicorn
 - Orchestration: LangGraph, LangChain
 - LLM integrations: Azure OpenAI, LangChain OpenAI, LangChain Google GenAI
-- Cloud/services: Azure Identity, Azure Video Indexer, Azure AI Search, Azure Monitor OpenTelemetry
+- Cloud/services: Azure AI Search, Azure Monitor OpenTelemetry
 - Data/document tooling: pandas, pypdf, yt-dlp, firecrawl-py
 - Storage/cache/db clients: SQLAlchemy, psycopg2-binary, Redis
 - App/UI dependency present: Streamlit
@@ -50,7 +50,7 @@ D:\Projects\Multimodal_LLMOPS
     |   |   `-- workflow.py
     |   `-- services/
     |       |-- __init__.py
-    |       `-- video_indexer.py
+    |       `-- video_processor.py
     `-- tests/
 ```
 
@@ -77,14 +77,11 @@ Key variables currently referenced in project config/files:
   - `AZURE_SEARCH_ENDPOINT`
   - `AZURE_SEARCH_API_KEY`
   - `AZURE_SEARCH_INDEX_NAME`
-- Azure Video Indexer:
-  - `AZURE_VI_NAME`
-  - `AZURE_VI_LOCATION`
-  - `AZURE_VI_ACCOUNT_ID`
-  - `AZURE_SUBSCRIPTION_ID`
-  - `AZURE_RESOURCE_GROUP`
 - Local video storage:
   - `LOCAL_VIDEO_STORAGE_DIR` (optional, defaults to `backend/data/videos`)
+  - `LOCAL_AUDIO_STORAGE_DIR` (optional, defaults to `backend/data/audio`)
+  - `LOCAL_FRAMES_STORAGE_DIR` (optional, defaults to `backend/data/frames`)
+  - `FRAME_INTERVAL_SECONDS` (optional, defaults to `2`)
 - Tracing/observability:
   - `APPLICATIONSINIGHTS_CONNECTION_STRING`
   - `LANGCHAIN_TRACING_V2`

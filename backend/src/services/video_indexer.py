@@ -48,7 +48,10 @@ class VideoIndexerService:
     def download_youtube_video(self, url, output_path="temp_video.mp4"):
         """Downloads a YouTube video to a local file."""
         logger.info(f"Downloading YouTube video: {url}")
-        
+        output_dir = os.path.dirname(output_path)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
         ydl_opts = {
             'format': 'best',
             'outtmpl': output_path,

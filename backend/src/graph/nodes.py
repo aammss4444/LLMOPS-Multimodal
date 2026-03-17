@@ -28,16 +28,19 @@ logging.basicConfig(level=logging.INFO)
 
 def index_video(state: VideoAuditState) -> dict[str, Any]:
     '''
-    Downlaods the video from the given URL
-    Uploads to Azure video indexer
-    extracts the insights
+    Downloads the video from the provided URL.
+    Stores the downloaded file in local storage.
+    Uploads the local file to Azure Video Indexer for processing.
+    Extracts transcript/OCR insights.
     '''
     video_url = state.get("video_url")
     video_id_input = state.get("video_id","vid_demo")
 
     logger.info(f"---[Node: Indexer] Processing: {video_url}")
 
-    local_filename = "temp_audit_video.mp4"
+    local_storage_dir = os.getenv("LOCAL_VIDEO_STORAGE_DIR", "backend/data/videos")
+    safe_video_name = re.sub(r"[^a-zA-Z0-9._-]", "_", video_id_input)
+    local_filename = os.path.join(local_storage_dir, f"{safe_video_name}.mp4")
 
     try: 
         vi_service = VideoIndexerService()
@@ -52,9 +55,7 @@ def index_video(state: VideoAuditState) -> dict[str, Any]:
         azure_video_id = vi_service.upload_video(local_path, video_name= video_id_input)  
         logger.info(f"Upload Success.Azure ID : {azure_video_id}")
 
-        # clean up
-        if os.path.exists(local_path): 
-            os.remove(local_path)
+        logger.info(f"Video retained in local storage: {local_path}")
 
         # wait
         raw_insights = vi_service.wait_for_processing(azure_video_id)

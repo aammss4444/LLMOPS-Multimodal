@@ -65,7 +65,7 @@ Each functional component is isolated to ensure maintainability and scalability.
 +---------------------+    +----------------------+
 | VideoIndexer        |    | VectorStore          |
 | - download_youtube()|    | - upsert_documents() |
-| - upload_to_azure() |    | - similarity_search()|
+| - upload_video()    |    | - similarity_search()|
 | - wait_for_processing()   +----------------------+
 | - extract_insights()|
 +---------------------+

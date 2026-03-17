@@ -2,81 +2,126 @@
 
 ## 1. Project Overview
 
-`Multimodal LLMOps` is a Python-based backend initiative for auditing video content against compliance/policy requirements using multimodal inputs.
+`Multimodal LLMOps` is a Python-based platform for auditing video content (e.g., advertisements, brand videos) against compliance and policy requirements. It leverages multimodal inputs (audio, visual text, and reference documents) to provide structured reports.
 
-Primary Goal:
-- Ingest video input from YouTube.
-- Extract transcript and OCR/text signals using Azure Video Indexer.
-- Run RAG-based compliance checks using **Qdrant** and **Gemini Embeddings**.
-- Extract text from brand guidelines using **PaddleOCR**.
-- Produce structured compliance issues and a final report via FastAPI.
+---
 
-## 2. Architecture Snapshot
+## 2. Tools & Technologies
 
-### 2.1 Layered Design
+### 2.1 AI & Orchestration
+| Tool | Purpose |
+| :--- | :--- |
+| **LangGraph** | Workflow orchestration and state management via directed graphs. |
+| **LangChain** | Framework for developing LLM applications and vector store integrations. |
+| **Qdrant** | High-performance vector database for storing and retrieving semantic information. |
+| **PaddleOCR** | Deep learning-based OCR for extracting text from images within PDFs. |
+| **PyMuPDF (fitz)** | Efficient parsing of the digital text layer in PDF documents. |
+| **Gemini Embeddings** | Vectorization of content using `models/embedding-001`. |
+| **Azure OpenAI** | Provides LLM capabilities (GPT-4o) for complex compliance reasoning. |
 
-1. **API Layer** (`backend/src/api/`)
-   - FastAPI service entrypoint (`server.py`).
-   - Handles `/health` and `/audit` endpoints.
+### 2.2 Cloud & Infrastructure
+| Tool | Purpose |
+| :--- | :--- |
+| **Azure Video Indexer** | Extraction of multi-channel insights (transcription, keywords, visual OCR). |
+| **FastAPI** | High-performance web framework for the backend API. |
+| **uv** | Modern Python package management, dependency resolution, and virtual environments. |
+| **Azure CLI** | Authentication and management of cloud resources. |
 
-2. **Graph Orchestration Layer** (`backend/src/graph/`)
-   - Core workflow orchestration using **LangGraph**.
-   - `state.py`: Shared execution state (`VideoAuditState`).
-   - `nodes.py`: Node logic for video indexing, audio RAG audit, and visual screening.
-   - `workflow.py`: Directed graph definition.
+---
 
-3. **Services Layer** (`backend/src/services/`)
-   - `video_indexer.py`: Integration with Azure Video Indexer for processing video files.
+## 3. Methodologies
 
-4. **Scripts Layer** (`backend/scripts/`)
-   - `index_document.py`: Operational script to index brand guidelines into Qdrant using PaddleOCR.
+### 3.1 Hybrid PDF Extraction
+To ensure 100% data coverage of brand guidelines, the system uses a dual-engine approach:
+1.  **Digital Layer**: `PyMuPDF` extracts searchable text quickly and accurately.
+2.  **Image Layer**: `PaddleOCR` scans every image embedded in the PDF to capture text that is otherwise invisible to standard parsers.
 
-5. **Data Layer** (`backend/data/`)
-   - Source policy/reference documents (PDFs).
+### 3.2 Retrieval-Augmented Generation (RAG)
+Relevant brand policies are chunked and stored in **Qdrant**. During the audit:
+-   The video transcript is used as a query.
+-   Qdrant returns the most relevant policy snippets.
+-   The LLM audits the video content specifically against these retrieved rules.
 
-### 2.2 Workflow Definition
+### 3.3 State-Based Orchestration
+The pipeline is designed as a **LangGraph State Machine**. This allows for:
+-   **Granular Error Handling**: If transcription fails, the audit node skips gracefully.
+-   **Persistent State**: Every step of the audit is logged in the `VideoAuditState` object.
 
-Pipeline as defined in `workflow.py`:
-`index_video` -> `audio_content_audit` -> `visual_compliance_audit` -> `END`
+---
 
-## 3. Tools and Technologies
+## 4. Project Architecture
 
-### 3.1 AI & Orchestration
-- **LangGraph**: Workflow orchestration.
-- **LangChain**: LLM framework.
-- **Qdrant**: Vector database for RAG.
-- **PyMuPDF (fitz)**: High-speed extraction of digital text from PDFs.
-- **PaddleOCR**: High-accuracy OCR for extracting text from images found within PDFs.
-- **Gemini Embeddings**: Vectorization of content.
-- **Azure OpenAI (GPT)**: Compliance analysis.
+The following diagram illustrates the data flow from video ingestion to the final compliance report.
 
-### 3.2 Cloud & Infrastructure
-- **Azure Video Indexer**: Multimedia analysis (transcript/OCR).
-- **Azure CLI**: Authentication.
-- **FastAPI**: Backend service.
-- **uv**: Dependency management.
+```mermaid
+graph TD
+    User([User Request]) --> FastAPI[FastAPI /audit]
+    FastAPI --> LG[LangGraph Orchestrator]
+    
+    subgraph "Audit Pipeline"
+        Node1[Video Indexer Node] --> Node2[Audio Auditor Node]
+        Node2 --> Node3[Visual Auditor Node]
+    end
+    
+    LG --> Node1
+    Node1 <--> AVI[Azure Video Indexer]
+    
+    Node2 <--> Qdrant[(Qdrant Vector DB)]
+    Node2 <--> GPT[Azure OpenAI / GPT-4o]
+    
+    Node3 --> Report[JSON Audit Report]
+    Report --> FastAPI
+    FastAPI --> User
+```
 
-## 4. Configuration
+---
 
-Managed via `.env` file:
-- `QDRANT_URL`, `QDRANT_COLLECTION_NAME`: Vector Store.
-- `GEMINI_API_KEY`: Embeddings.
-- `AZURE_OPENAI_*`: Chat analysis.
-- `AZURE_VI_*`: Video processing.
+## 5. Storage Schema (ER Diagram)
 
-## 5. Usage
+While the project primarily uses unstructured video data, the knowledge base stored in Qdrant follows a specific metadata structure.
 
-### 5.1 Indexing Knowledge Base
+```mermaid
+erDiagram
+    VECTOR_LOGS ||--o{ CHUNK : "contains"
+    CHUNK {
+        string page_content "The text payload"
+        string source "Original PDF filename"
+        int page "Document page number"
+        string extraction_method "digital OR ocr"
+        int image_index "Optional: index of image on page"
+    }
+    
+    VIDEO_INSIGHTS {
+        string video_id "Azure VI ID"
+        string transcript "Extracted text"
+        list ocr_elements "Visual text frames"
+    }
+```
+
+---
+
+## 6. Project Structure
+
+-   `backend/scripts/index_document.py`: Refines brand guidelines and populates Qdrant.
+-   `backend/src/graph/nodes.py`: Contains the logic for each step of the audit.
+-   `backend/src/graph/state.py`: Defines the data schema for the workflow state.
+-   `backend/src/api/server.py`: Entry point for the FastAPI service.
+-   `backend/data/`: Repository for brand guideline PDFs.
+
+---
+
+## 7. Setup and Usage
+
+### 7.1 Environment Setup
+1.  Install `uv`.
+2.  Run `uv sync`.
+3.  Configure `.env` with API keys for Gemini, Azure OpenAI, Qdrant, and Video Indexer.
+
+### 7.2 Running the Pipeline
 ```bash
+# Index Guidelines
 uv run python backend/scripts/index_document.py
-```
 
-### 5.2 Starting the Server
-```bash
-python -m backend.src.api.server
-```
-
-### 5.3 Triggering Audit
-```bash
-curl -X POST "http://localhost:8000/audit" -H "Content-Type: application/json" -d '{"video_url": "YOUR_YOUTUBE_URL"}'
+# Start Server
+uv run python -m backend.src.api.server
 ```

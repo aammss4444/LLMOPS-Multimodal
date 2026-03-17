@@ -9,40 +9,19 @@ This document provides a detailed technical overview of the `Multimodal LLMOps` 
 The system follows a modular, layer-based architecture designed for multimodal data processing and LLM-driven compliance auditing.
 
 ```mermaid
-graph TB
-    subgraph "Client Layer"
-        User([User/Client])
-        API_Call(REST API Request)
-    end
+graph TD
+    User[User/Client] --> API_Call[REST API Request]
+    API_Call --> SVR[Server: server.py]
+    SVR --> ORCH[LangGraph Orchestrator]
 
-    subgraph "Application Layer (FastAPI)"
-        SVR[Server: server.py]
-        ORCH[LangGraph Orchestrator]
-    end
-
-    subgraph "Processing Layer"
-        AVI_SVC[Azure Video Indexer Service]
-        EXT_SVC[Hybrid PDF Extractor]
-    end
-
-    subgraph "Intelligence & Storage"
-        EMB[Gemini Embeddings]
-        QDR[(Qdrant Vector DB)]
-        LLM[Azure OpenAI / GPT-4o]
-    end
-
-    User --> API_Call
-    API_Call --> SVR
-    SVR --> ORCH
-
-    ORCH <--> AVI_SVC
-    ORCH <--> EXT_SVC
+    ORCH --- AVI_SVC[Azure Video Indexer Service]
+    ORCH --- EXT_SVC[Hybrid PDF Extractor]
     
-    EXT_SVC --> EMB
-    EMB --> QDR
+    EXT_SVC --> EMB[Gemini Embeddings]
+    EMB --> QDR[(Qdrant Vector DB)]
     
-    ORCH <--> QDR
-    ORCH <--> LLM
+    ORCH --- QDR
+    ORCH --- LLM[Azure OpenAI / GPT-4o]
 ```
 
 ---
@@ -78,9 +57,9 @@ classDiagram
     }
 
     Server --> Workflow : triggers
-    Workflow --> VideoIndexer : "Node: Index Video"
-    Workflow --> VectorStore : "Node: Audio Auditor"
-    DocumentProcessor --> VectorStore : "Indexing Script"
+    Workflow --> VideoIndexer : Index_Video_Node
+    Workflow --> VectorStore : Audio_Auditor_Node
+    DocumentProcessor --> VectorStore : Indexing_Script
 ```
 
 ---

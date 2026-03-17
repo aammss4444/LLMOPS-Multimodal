@@ -8,20 +8,31 @@ This document provides a detailed technical overview of the `Multimodal LLMOps` 
 
 The system follows a modular, layer-based architecture designed for multimodal data processing and LLM-driven compliance auditing.
 
-```mermaid
-graph TD
-    User["User/Client"] --> API_Call["REST API Request"]
-    API_Call --> SVR["Server: server.py"]
-    SVR --> ORCH["LangGraph Orchestrator"]
+```text
++----------------------------------------------------------+
+| HIGH-LEVEL SYSTEM ARCHITECTURE (MULTIMODAL LLMOPS)      |
++----------------------------------------------------------+
 
-    ORCH --- AVI_SVC["Azure Video Indexer Service"]
-    ORCH --- EXT_SVC["Hybrid PDF Extractor"]
-    
-    EXT_SVC --> EMB["Gemini Embeddings"]
-    EMB --> QDR["Qdrant Vector DB"]
-    
-    ORCH --- QDR
-    ORCH --- LLM["Azure OpenAI / GPT-4o"]
+[User/Client]
+   |
+   v
+[REST API Request]
+   |
+   v
+[Server: backend/src/api/server.py]
+   |
+   v
+[LangGraph Orchestrator]
+   |---> [Azure Video Indexer Service]
+   |---> [Hybrid PDF Extractor]
+   |          |
+   |          v
+   |      [Gemini Embeddings]
+   |          |
+   |          v
+   +------> [Qdrant Vector DB]
+   |
+   +------> [Azure OpenAI (GPT-4o)]
 ```
 
 ---
@@ -30,36 +41,45 @@ graph TD
 
 Each functional component is isolated to ensure maintainability and scalability.
 
-```mermaid
-classDiagram
-    class Server {
-        +POST /audit(video_url)
-        +GET /health()
-    }
-    class Workflow {
-        +State: VideoAuditState
-        +Nodes: index_vid, audit_audio, screen_visual
-    }
-    class VideoIndexer {
-        +download_youtube()
-        +upload_to_azure()
-        +wait_for_processing()
-        +extract_insights()
-    }
-    class DocumentProcessor {
-        +extract_digital_text()
-        +extract_image_ocr()
-        +generate_chunks()
-    }
-    class VectorStore {
-        +upsert_documents()
-        +similarity_search()
-    }
+```text
++----------------------------------------------------------+
+| COMPONENT VIEW                                           |
++----------------------------------------------------------+
 
-    Server --> Workflow : "triggers"
-    Workflow --> VideoIndexer : "Index_Video_Node"
-    Workflow --> VectorStore : "Audio_Auditor_Node"
-    DocumentProcessor --> VectorStore : "Indexing_Script"
++-----------------------------------------------+
+| Server (backend/src/api/server.py)            |
+| - POST /audit(video_url)                      |
+| - GET /health()                               |
++-----------------------------------------------+
+                  |
+                  | triggers
+                  v
++-----------------------------------------------+
+| Workflow (LangGraph State Machine)            |
+| - State: VideoAuditState                      |
+| - Nodes: index_vid, audit_audio, screen_visual|
++-----------------------------------------------+
+      |                          |
+      | Index_Video_Node         | Audio_Auditor_Node
+      v                          v
++---------------------+    +----------------------+
+| VideoIndexer        |    | VectorStore          |
+| - download_youtube()|    | - upsert_documents() |
+| - upload_to_azure() |    | - similarity_search()|
+| - wait_for_processing()   +----------------------+
+| - extract_insights()|
++---------------------+
+
++------------------------------+
+| DocumentProcessor            |
+| - extract_digital_text()     |
+| - extract_image_ocr()        |
+| - generate_chunks()          |
++------------------------------+
+              |
+              | Indexing_Script
+              v
+         [VectorStore]
 ```
 
 ---
@@ -68,29 +88,42 @@ classDiagram
 
 The sequence of operations during a compliance audit request.
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant A as FastAPI Server
-    participant G as LangGraph Orchestrator
-    participant V as Azure Video Indexer
-    participant Q as Qdrant Vector Store
-    participant L as LLM (GPT-4o)
+```text
++----------------------------------------------------------+
+| DATA FLOW PIPELINE (AUDIT WORKFLOW)                      |
++----------------------------------------------------------+
 
-    U->>A: POST /audit (video_url)
-    A->>G: Start Workflow (State)
-    
-    G->>V: Upload & Process Video
-    V-->>G: Transcript & Visual OCR
-    
-    G->>Q: Query relevant brand guidelines (RAG)
-    Q-->>G: Policy Context
-    
-    G->>L: Audit Transcript vs Context
-    L-->>G: Compliance Issues (JSON)
-    
-    G->>A: Final Audit State
-    A->>U: JSON Report
+[User]
+  |
+  | POST /audit (video_url)
+  v
+[FastAPI Server]
+  |
+  | Start Workflow (VideoAuditState)
+  v
+[LangGraph Orchestrator]
+  |\
+  | \--> [Azure Video Indexer]
+  |         |
+  |         +--> Transcript + Visual OCR
+  |
+  +--> [Qdrant Vector Store]
+  |       |
+  |       +--> Policy Context (RAG retrieval)
+  |
+  +--> [LLM: Azure OpenAI GPT-4o]
+          |
+          +--> Compliance Issues (JSON)
+
+[LangGraph Orchestrator]
+  |
+  | Final Audit State
+  v
+[FastAPI Server]
+  |
+  | JSON Report
+  v
+[User]
 ```
 
 ---

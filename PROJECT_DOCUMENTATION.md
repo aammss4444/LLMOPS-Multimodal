@@ -53,21 +53,31 @@ The pipeline is designed as a **LangGraph State Machine**. This allows for:
 
 The following diagram illustrates the data flow from video ingestion to the final compliance report.
 
-```mermaid
-graph TD
-    User["User Request"] --> FastAPI["FastAPI Server"]
-    FastAPI --> LG["LangGraph Orchestrator"]
-    
-    LG --> Node1["Video Indexer Node"]
-    Node1 --> Node2["Audio Auditor Node"]
-    Node2 --> Node3["Visual Auditor Node"]
-    
-    Node1 --- AVI["Azure Video Indexer"]
-    Node2 --- Qdrant["Qdrant Vector DB"]
-    Node2 --- GPT["Azure OpenAI"]
-    
-    Node3 --> Report["JSON Audit Report"]
-    Report --> FastAPI
+```text
++----------------------------------------------------------+
+| PROJECT ARCHITECTURE FLOW                                |
++----------------------------------------------------------+
+
+[User Request]
+   |
+   v
+[FastAPI Server]
+   |
+   v
+[LangGraph Orchestrator]
+   |
+   +--> [Video Indexer Node] ------> [Azure Video Indexer]
+   |
+   +--> [Audio Auditor Node] ------> [Qdrant Vector DB]
+   |                           \----> [Azure OpenAI]
+   |
+   +--> [Visual Auditor Node]
+             |
+             v
+      [JSON Audit Report]
+             |
+             v
+      [FastAPI Response]
 ```
 
 ---
@@ -76,22 +86,26 @@ graph TD
 
 While the project primarily uses unstructured video data, the knowledge base stored in Qdrant follows a specific metadata structure.
 
-```mermaid
-erDiagram
-    VECTOR_LOGS ||--o{ CHUNK : "contains"
-    CHUNK {
-        string page_content "The text payload"
-        string source "Original PDF filename"
-        int page "Document page number"
-        string extraction_method "digital OR ocr"
-        int image_index "Optional: index of image on page"
-    }
-    
-    VIDEO_INSIGHTS {
-        string video_id "Azure VI ID"
-        string transcript "Extracted text"
-        list ocr_elements "Visual text frames"
-    }
+```text
++----------------------------------------------------------+
+| STORAGE SCHEMA (QDRANT METADATA + VIDEO INSIGHTS)        |
++----------------------------------------------------------+
+
+[VECTOR_LOGS]
+   |
+   | contains (1-to-many)
+   v
+[CHUNK]
+   |- page_content      : text payload
+   |- source            : original PDF filename
+   |- page              : document page number
+   |- extraction_method : digital OR ocr
+   |- image_index       : optional image index on page
+
+[VIDEO_INSIGHTS]
+   |- video_id      : Azure Video Indexer ID
+   |- transcript    : extracted transcript text
+   |- ocr_elements  : visual text frames
 ```
 
 ---

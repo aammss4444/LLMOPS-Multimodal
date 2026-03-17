@@ -7,6 +7,7 @@
 The current video pipeline is fully local for media extraction:
 - Download source video (YouTube)
 - Extract audio via `ffmpeg` for speech processing
+- Run speech recognition with `Whisper` to generate transcript
 - Extract frames via `ffmpeg` for OCR
 - Run OCR over frames and perform compliance checks
 
@@ -23,6 +24,7 @@ The current video pipeline is fully local for media extraction:
 | **PaddleOCR** | OCR on extracted video frames and embedded images in PDFs. |
 | **PyMuPDF (fitz)** | Efficient parsing of the digital text layer in PDF documents. |
 | **FFmpeg** | Local extraction of audio and frames from videos for speech and OCR processing. |
+| **Whisper** | Local speech-to-text transcription from extracted WAV audio. |
 | **Gemini Embeddings** | Vectorization of content using `models/embedding-001`. |
 | **Azure OpenAI** | LLM reasoning for compliance analysis. |
 
@@ -44,7 +46,7 @@ To maximize policy coverage from guideline documents:
 
 ### 3.2 Retrieval-Augmented Generation (RAG)
 Relevant policy chunks are indexed in **Qdrant**. During audit:
-- Transcript (or speech output) is used as the retrieval query.
+- Whisper transcript is used as the retrieval query.
 - Qdrant returns relevant policy context.
 - LLM audits content against retrieved rules.
 
@@ -72,7 +74,7 @@ The pipeline runs as a **LangGraph State Machine**:
    |
    v
 [LangGraph Orchestrator]
-   |---> [FFmpeg Video Processing Service]
+   |---> [FFmpeg + Whisper Video Processing Service]
    |---> [Hybrid PDF Extractor]
    |          |
    |          v
@@ -114,6 +116,7 @@ The pipeline runs as a **LangGraph State Machine**:
 | VideoProcessor      |    | VectorStore (Qdrant) |
 | - download_youtube()|    | - similarity_search()|
 | - extract_audio()   |    +----------------------+
+| - transcribe_audio()|
 | - extract_frames()  |
 | - extract_ocr_text()|
 +---------------------+
@@ -153,6 +156,8 @@ The pipeline runs as a **LangGraph State Machine**:
   |         |
   |         +--> Download MP4
   |         +--> Extract WAV audio (ffmpeg)
+  |         +--> Speech recognition (Whisper)
+  |         +--> Transcript
   |         +--> Extract JPG frames (ffmpeg)
   |         +--> OCR text (PaddleOCR)
   |
@@ -200,7 +205,7 @@ The pipeline runs as a **LangGraph State Machine**:
    |- local_file_path  : downloaded video path
    |- audio_file_path  : extracted WAV path
    |- frame_paths      : extracted frame file paths
-   |- transcript       : speech pipeline output (if available)
+   |- transcript       : Whisper transcript output
    |- ocr_elements     : visual text from extracted frames
 ```
 
@@ -214,7 +219,7 @@ The pipeline runs as a **LangGraph State Machine**:
 - `audio_file_path`: extracted audio path (WAV).
 - `frame_paths`: list of extracted frame image paths.
 - `video_metadata`: platform and extraction metadata.
-- `transcript`: transcript text (populated by speech stage when integrated).
+- `transcript`: transcript text from Whisper speech recognition.
 - `ocr_text`: OCR lines extracted from frames.
 - `compliance_issues`: accumulated structured issues.
 - `final_status`: `PASS` or `FAIL`.
@@ -230,7 +235,7 @@ The pipeline runs as a **LangGraph State Machine**:
 - `backend/src/graph/state.py`: Workflow state schema.
 - `backend/src/graph/nodes.py`: Graph node implementations.
 - `backend/src/graph/workflow.py`: Node orchestration.
-- `backend/src/services/video_processor.py`: YouTube download + ffmpeg extraction + OCR.
+- `backend/src/services/video_processor.py`: YouTube download + ffmpeg extraction + Whisper transcription + OCR.
 - `backend/data/`: Local data assets.
 
 ---
@@ -242,6 +247,9 @@ The pipeline runs as a **LangGraph State Machine**:
 2. Run `uv sync`.
 3. Configure `.env` with required keys for Gemini, Azure OpenAI, Qdrant, and optional local path settings.
 4. Ensure `ffmpeg` is installed and available on system `PATH`.
+5. Configure Whisper runtime options (optional):
+   - `WHISPER_MODEL` (default: `base`)
+   - `WHISPER_LANGUAGE` (default: `en`)
 
 ### 10.2 Run
 ```bash

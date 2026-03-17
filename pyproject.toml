@@ -31,6 +31,7 @@ dependencies = [
     "paddlepaddle>=3.3.0",
     "langchain-qdrant>=1.1.0",
     "opencv-python>=4.13.0.92",
+    "openai-whisper>=20250625",
     "langchain-core>=0.3.0",
     "pymupdf>=1.27.2",
     "pillow>=12.1.1",

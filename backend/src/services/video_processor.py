@@ -2,6 +2,7 @@
 Video processing service:
 - Download video (YouTube)
 - Extract audio with ffmpeg (for speech pipeline)
+- Transcribe speech with Whisper
 - Extract frames with ffmpeg (for OCR)
 - Run OCR over extracted frames
 """
@@ -14,6 +15,7 @@ from typing import Any
 
 import yt_dlp
 from paddleocr import PaddleOCR
+import whisper
 
 logger = logging.getLogger("video-processor")
 
@@ -24,6 +26,9 @@ class VideoProcessingService:
         self.audio_dir = os.getenv("LOCAL_AUDIO_STORAGE_DIR", "backend/data/audio")
         self.frames_dir = os.getenv("LOCAL_FRAMES_STORAGE_DIR", "backend/data/frames")
         self.frame_interval_seconds = int(os.getenv("FRAME_INTERVAL_SECONDS", "2"))
+        self.whisper_model_name = os.getenv("WHISPER_MODEL", "base")
+        self.whisper_language = os.getenv("WHISPER_LANGUAGE", "en")
+        self._whisper_model = None
 
     def download_youtube_video(self, url: str, output_path: str = "temp_video.mp4") -> str:
         """Downloads a YouTube video to a local file."""
@@ -89,6 +94,17 @@ class VideoProcessingService:
         frames = sorted(str(p) for p in Path(output_dir).glob("frame_*.jpg"))
         return frames
 
+    def transcribe_audio(self, audio_path: str) -> str:
+        """Transcribe extracted audio using Whisper."""
+        try:
+            if self._whisper_model is None:
+                self._whisper_model = whisper.load_model(self.whisper_model_name)
+            result = self._whisper_model.transcribe(audio_path, language=self.whisper_language)
+            transcript = (result or {}).get("text", "")
+            return transcript.strip()
+        except Exception as e:
+            raise Exception(f"Whisper transcription failed: {str(e)}")
+
     def extract_ocr_text(self, frame_paths: list[str]) -> list[str]:
         """Run OCR on all frames and return de-duplicated text lines."""
         if not frame_paths:
@@ -121,6 +137,7 @@ class VideoProcessingService:
         frames_output_dir = str(Path(self.frames_dir) / safe_id)
 
         extracted_audio = self.extract_audio(video_path, audio_path)
+        transcript = self.transcribe_audio(extracted_audio)
         frame_paths = self.extract_frames(video_path, frames_output_dir)
         ocr_text = self.extract_ocr_text(frame_paths)
 
@@ -128,11 +145,11 @@ class VideoProcessingService:
             "local_file_path": video_path,
             "audio_file_path": extracted_audio,
             "frame_paths": frame_paths,
-            "transcript": "",
+            "transcript": transcript,
             "ocr_text": ocr_text,
             "video_metadata": {
                 "platform": "youtube",
-                "extraction": "ffmpeg",
+                "extraction": "ffmpeg+whisper",
                 "frame_count": len(frame_paths),
             },
         }

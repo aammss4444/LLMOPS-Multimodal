@@ -68,7 +68,7 @@ def get_vector_store() -> QdrantVectorStore:
     if use_hybrid:
         try:
             sparse_embeddings = FastEmbedSparse(
-                model_name=os.getenv("QDRANT_SPARSE_MODEL", "Qdrant/bm25")
+                model_name=os.getenv("QDRANT_SPARSE_MODEL", "prithvida/Splade_PP_en_v1")
             )
             return QdrantVectorStore(
                 client=client,

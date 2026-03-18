@@ -34,4 +34,6 @@ dependencies = [
     "pymupdf>=1.27.2",
     "pillow>=12.1.1",
     "numpy>=2.4.3",
+    "fastembed>=0.2.7",
+    "rapidocr-onnxruntime>=1.4.4",
 ]

@@ -8,7 +8,7 @@ The implementation is workflow-driven using LangGraph and currently supports:
 - Video download from YouTube
 - Audio/frame extraction via FFmpeg
 - Whisper transcription
-- PaddleOCR text extraction from frames
+- PaddleOCR text extraction with RapidOCR fallback for runtime resilience
 - Text fusion and analysis-ready structuring
 - Compliance checks using Gemini + Qdrant hybrid context retrieval (keyword + dense vectors)
 - Checkpoint-level pipeline observability
@@ -30,8 +30,8 @@ The implementation is workflow-driven using LangGraph and currently supports:
 | Video Download | yt-dlp |
 | Media Extraction | FFmpeg |
 | Speech-to-Text | openai-whisper |
-| OCR | PaddleOCR, PaddlePaddle |
-| PDF Text + OCR Indexing | PyMuPDF, Pillow, numpy |
+| OCR | PaddleOCR (primary), RapidOCR (fallback), PaddlePaddle |
+| PDF Text + OCR Indexing | PyMuPDF, Pillow, numpy, rapidocr-onnxruntime |
 
 ### 2.3 LLM and Retrieval
 | Component | Technology |
@@ -66,6 +66,7 @@ The implementation is workflow-driven using LangGraph and currently supports:
    |         +--> whisper transcription -> transcript text
    |         +--> ffmpeg frame extract -> frame_*.jpg
    |         +--> paddleocr extraction -> OCR text lines
+   |         +--> rapidocr fallback when paddle runtime fails
    |
    |---> [Fusion + Structured Output]
    |         +--> fused_payload JSON
@@ -141,6 +142,7 @@ Execution order:
 Initialization behavior:
 - Primary mode: `RetrievalMode.HYBRID` with dense embeddings + sparse keyword retrieval.
 - Fallback mode: `RetrievalMode.DENSE` if sparse/hybrid setup is unavailable.
+- Sparse model default: `prithvida/Splade_PP_en_v1`.
 - This keeps the node resilient while preserving Qdrant as the knowledge base query source.
 
 ### 3.5 Prompting Format Used in `audio_content_audit`
@@ -162,6 +164,33 @@ The LLM output is parsed into normalized workflow fields:
 - `compliance_issues`
 - `final_status`
 - `final_report`
+
+### 3.6 PDF Indexing Pipeline in `index_document.py`
+
+`index_document.py` is the ingestion pipeline for the Qdrant knowledge base.
+
+What it does:
+- Extracts digital text from each PDF page.
+- Extracts image text using OCR:
+  - Primary: PaddleOCR
+  - Fallback: RapidOCR when PaddleOCR raises runtime errors.
+- Splits all extracted text into overlapping chunks.
+- Embeds chunks and uploads to Qdrant with hybrid-ready vectors.
+
+What metadata is stored per chunk:
+- Source and lineage:
+  - `source`, `source_path`, `source_doc_id`
+  - `page`, `page_total`, `image_index`
+- Extraction details:
+  - `extraction_method` (`digital` or `ocr`)
+  - `content_type` (`normal_text` or `image_text`)
+  - `ocr_backend` (for OCR chunks)
+- Chunk details:
+  - `chunk_id`, `chunk_index`, `chunk_char_count`, `chunk_word_count`
+  - `chunk_start_text`, `chunk_end_text`, `chunk_text`
+- Ingestion tracking:
+  - `ingested_at_utc`, `ingestion_pipeline_version`
+  - `storage_type`
 
 ### 3.3 Video Processing Service Responsibilities (`backend/src/services/video_processor.py`)
 
@@ -267,7 +296,7 @@ Client -> FastAPI /audit -> LangGraph Workflow
   |      +--> Extract WAV audio (ffmpeg)
   |      +--> Transcribe (whisper)
   |      +--> Extract JPG frames (ffmpeg)
-  |      +--> OCR text (paddleocr)
+  |      +--> OCR text (paddleocr, fallback: rapidocr)
   |
   +--> [fusion_layer]
   |      +--> merged transcript + OCR JSON
@@ -382,6 +411,9 @@ video_url + video_id
   - `QDRANT_SPARSE_VECTOR_NAME`
   - `QDRANT_SPARSE_MODEL`
   - `QDRANT_TOP_K`
+- OCR runtime:
+  - `FLAGS_use_mkldnn` (default forced to `0` in index script for stability)
+  - `PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK` (default forced to `True` in index script)
 
 ## 9. Repository Files
 
@@ -443,8 +475,8 @@ D:\Projects\Multimodal_LLMOPS
   - Provides detailed checkpoint-aware failure propagation via `VideoProcessingError`.
 
 - `backend/scripts/index_document.py`:
-  - Extracts guideline text from PDFs (digital layer + image OCR).
-  - Splits/chunks content and uploads embeddings into Qdrant.
+  - Extracts guideline text from PDFs (digital layer + OCR with fallback).
+  - Splits/chunks content and uploads dense + sparse embeddings into Qdrant.
   - Enables retrieval context used by `audio_content_audit`.
 
 ## 10. Runbook
@@ -474,6 +506,7 @@ Common failures and where to inspect:
   - Verify model availability and audio file generation.
 - OCR fails:
   - Check `paddleocr_extract` and `ocr_line_count` in details.
+  - For PDF indexing, fallback OCR should still index image text even when Paddle fails.
 - Qdrant/Gemini audit fails:
   - Check `audio_content_audit` and `errors`.
   - Verify `QDRANT_*` and `GEMINI_API_KEY`.

@@ -10,6 +10,7 @@ Project root: `D:\Projects\Multimodal_LLMOPS`
 - Local media pipeline is active: YouTube download -> FFmpeg extraction -> Whisper transcription -> PaddleOCR frame text extraction.
 - Fusion and structured-output layers are implemented before compliance audit nodes.
 - RAG audit uses Qdrant knowledge base retrieval with hybrid search support (dense embeddings + keyword sparse retrieval).
+- PDF indexing now uses OCR fallback (`RapidOCR`) when PaddleOCR runtime fails, so extracted image text can still be ingested.
 - Checkpoint-based execution tracking is implemented in workflow state and API response.
 
 ## Implemented Audit Flow
@@ -96,6 +97,7 @@ Tracked checkpoints:
 - Media processing: `ffmpeg`
 - Audio transcription: `openai-whisper`
 - OCR: `paddleocr`, `paddlepaddle`
+- OCR fallback: `rapidocr-onnxruntime`
 - Document indexing: `PyMuPDF`, `Pillow`, `numpy`, `langchain-text-splitters`
 - Hybrid retrieval support: `langchain-qdrant` `RetrievalMode.HYBRID`, `FastEmbedSparse` (with dense fallback)
 - Package management: `uv`

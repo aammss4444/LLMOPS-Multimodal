@@ -111,6 +111,31 @@ def parse_json_object_from_llm(content: str) -> Dict[str, Any]:
     return json.loads(text)
 
 
+def build_retrieved_rules_context(docs: list[Any]) -> tuple[str, list[dict[str, Any]]]:
+    context_parts: list[str] = []
+    references: list[dict[str, Any]] = []
+    for idx, doc in enumerate(docs, start=1):
+        metadata = doc.metadata or {}
+        source = metadata.get("source", "unknown_source")
+        page = metadata.get("page", "unknown_page")
+        chunk_index = metadata.get("chunk_index", "unknown_chunk")
+        extraction_method = metadata.get("extraction_method", "unknown")
+        text = (doc.page_content or "").strip()
+        context_parts.append(
+            f"[Rule {idx}] Source={source} | Page={page} | Chunk={chunk_index} | Method={extraction_method}\n{text}"
+        )
+        references.append(
+            {
+                "rank": idx,
+                "source": source,
+                "page": page,
+                "chunk_index": chunk_index,
+                "extraction_method": extraction_method,
+            }
+        )
+    return "\n\n".join(context_parts), references
+
+
 def index_video(state: VideoAuditState) -> dict[str, Any]:
     """
     Downloads the video from the provided URL and runs local ffmpeg processing:
@@ -266,7 +291,7 @@ def audio_content_node(state: VideoAuditState) -> Dict[str, Any]:
     fused_text = (state.get("fused_text") or "").strip()
     ocr_text_lines = state.get("ocr_text") or []
     ocr_text = "\n".join([line for line in ocr_text_lines if isinstance(line, str)])
-    query_text = fused_text or transcript
+    query_text = fused_text or "\n".join([transcript, ocr_text]).strip()
 
     if not query_text:
         logger.warning("No transcript/OCR text available. Skipping Audit.")
@@ -289,9 +314,12 @@ def audio_content_node(state: VideoAuditState) -> Dict[str, Any]:
     try:
         top_k = int(os.getenv("QDRANT_TOP_K", "5"))
         docs = vector_store.similarity_search(query_text, k=top_k)
-        retrieved_rules = "\n\n".join(
-            [f"[Rule {idx}] {doc.page_content}" for idx, doc in enumerate(docs, start=1)]
-        )
+        if not docs:
+            return {
+                **merge_checkpoint_state(state, updates={"audio_content_audit": "failed"}),
+                "errors": ["RAG retrieval returned no legal/guideline chunks from Qdrant."],
+            }
+        retrieved_rules, rag_rule_references = build_retrieved_rules_context(docs)
     except Exception as e:
         logger.error("Qdrant retrieval failed: %s", str(e))
         return {
@@ -304,15 +332,22 @@ You are a senior brand compliance auditor.
 OFFICIAL REGULATORY RULES:
 {retrieved_rules}
 INSTRUCTIONS:
-1. Analyze the Transcript and OCT text below.
-2. Identify ANY violations of the rules.
-3. Return strictly JSON in the following format:
+1. Analyze the transcript and OCR text below.
+2. Compare brand statements against OFFICIAL REGULATORY RULES.
+3. Identify:
+   - direct rule violations
+   - misleading or unverifiable brand claims
+   - missing mandatory disclosures (if applicable)
+4. Return strictly JSON in the following format:
 {{
   "compliance_results": [
     {{
       "category": "Claim Validation",
       "severity": "CRITICAL",
-      "description": "Explanation of the violation..."
+      "description": "Explanation of the violation or misleading claim...",
+      "misleading_claim": true,
+      "evidence": "Transcript/OCR snippet that triggered this finding",
+      "rule_reference": "Rule id/source/page used for this finding"
     }}
   ],
   "status": "FAIL",
@@ -376,6 +411,7 @@ ON-SCREEN TEXT (OCR) : {ocr_text}
         "rag_top_k": top_k,
         "rag_retrieved_rules_count": len(docs),
         "rag_retrieval_mode": str(retrieval_mode),
+        "rag_rule_references": rag_rule_references,
     }
 
     return {

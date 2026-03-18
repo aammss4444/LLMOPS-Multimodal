@@ -50,25 +50,33 @@ The implementation is workflow-driven using LangGraph and currently supports:
 [User/Client]
    |
    v
-[REST API Request]
+[REST API Request: video_url, video_id]
    |
    v
 [Server: backend/src/api/server.py]
+  - validates payload
+  - initializes checkpoint_status/checkpoint_details
+  - invokes workflow and returns final state
    |
    v
 [LangGraph Orchestrator]
    |---> [Video Processor Service]
-   |         +--> yt-dlp download
-   |         +--> ffmpeg audio extract
-   |         +--> whisper transcription
-   |         +--> ffmpeg frame extract
-   |         +--> paddleocr extraction
+   |         +--> yt-dlp download -> local .mp4
+   |         +--> ffmpeg audio extract -> .wav
+   |         +--> whisper transcription -> transcript text
+   |         +--> ffmpeg frame extract -> frame_*.jpg
+   |         +--> paddleocr extraction -> OCR text lines
    |
    |---> [Fusion + Structured Output]
+   |         +--> fused_payload JSON
+   |         +--> structured_output (analysis-ready records)
    |
    |---> [Qdrant Vector DB]
+   |         +--> similarity context for audit
    |
    +----> [Gemini 2.5 Flash]
+             +--> compliance issues JSON
+             +--> final pass/fail status
 ```
 
 ## 3. Implemented Workflow
@@ -108,6 +116,42 @@ Execution order:
 
 - `visual_compliance_audit`:
   - Runs keyword-based visual risk checks on OCR text
+
+### 3.2 Node Input/Output Contracts
+
+| Node | Reads from state | Writes to state | Why it exists |
+| :--- | :--- | :--- | :--- |
+| `index_video` | `video_url`, `video_id` | `local_file_path`, `audio_file_path`, `frame_paths`, `transcript`, `ocr_text`, `video_metadata`, `checkpoint_*`, `errors` | Converts raw URL input into machine-usable multimodal artifacts. |
+| `fusion_layer` | `transcript`, `ocr_text`, `video_id` | `fused_text`, `fused_payload`, `checkpoint_*`, `video_metadata.fusion` | Creates one combined representation that downstream audit can consume consistently. |
+| `structured_output_layer` | `fused_text`, `fused_payload`, `transcript`, `ocr_text`, `video_id`, `video_url` | `structured_output`, `checkpoint_*` | Normalizes extracted content into analysis-ready records for later analytics/reporting use. |
+| `audio_content_audit` | `fused_text` (fallback `transcript`), Qdrant collection | `compliance_issues`, `final_status`, `checkpoint_*`, `errors` | Performs RAG + LLM policy audit over extracted content. |
+| `visual_compliance_audit` | `ocr_text` | `compliance_issues`, `final_status`, `final_report`, `checkpoint_*` | Adds deterministic keyword safety checks from visual text. |
+
+### 3.3 Video Processing Service Responsibilities (`backend/src/services/video_processor.py`)
+
+`VideoProcessingService` is the core media ETL component. It owns local media extraction and conversion from binary video into textual content.
+
+Method-by-method behavior:
+- `download_youtube_video(url, output_path)`:
+  - Uses `yt-dlp` to fetch YouTube media.
+  - Saves output to deterministic local path from `video_id`.
+  - Fails fast on invalid URL/download errors.
+- `extract_audio(video_path, output_path)`:
+  - Uses `ffmpeg` to generate mono 16k WAV.
+  - Output is designed for Whisper compatibility.
+- `transcribe_audio(audio_path)`:
+  - Lazily loads Whisper model (`WHISPER_MODEL`) once.
+  - Produces transcript string.
+- `extract_frames(video_path, output_dir, interval_seconds)`:
+  - Uses `ffmpeg` fps filter (`fps=1/N`) to sample frames.
+  - Returns ordered frame file list.
+- `extract_ocr_text(frame_paths)`:
+  - Runs PaddleOCR over each extracted frame.
+  - Deduplicates case-insensitive text lines.
+- `process_video(video_path, video_id)`:
+  - Runs entire extraction pipeline in sequence.
+  - Tracks each checkpoint (`ffmpeg_audio_extract`, `whisper_transcription`, etc.).
+  - Raises `VideoProcessingError` with partial checkpoint progress if any stage fails.
 
 ## 4. Checkpoint Model
 
@@ -205,6 +249,46 @@ Client -> FastAPI /audit -> LangGraph Workflow
 [Final Response]
 ```
 
+## 6.2 Artifact Flow Diagram (What is produced at each stage)
+
+```text
+[Input]
+video_url + video_id
+   |
+   v
+[index_video]
+   |- local_file_path: backend/data/videos/<video_id>.mp4
+   |- audio_file_path: backend/data/audio/<video_id>.wav
+   |- frame_paths: backend/data/frames/<video_id>/frame_*.jpg
+   |- transcript: whisper output text
+   |- ocr_text: ["line1", "line2", ...]
+   v
+[fusion_layer]
+   |- fused_text: joined transcript + OCR block text
+   |- fused_payload:
+      {
+        "video_id": "...",
+        "transcript": "...",
+        "ocr_text": [...],
+        "fusion_stats": {...}
+      }
+   v
+[structured_output_layer]
+   |- structured_output:
+      {
+        "records": [
+          {"source_type": "transcript", ...},
+          {"source_type": "ocr", ...}
+        ],
+        "combined_text": "...",
+        "fused_payload": {...}
+      }
+   v
+[auditors]
+   |- compliance_issues: [{category, description, severity, timestamp}]
+   |- final_status: PASS/FAIL
+```
+
 ## 7. API Contract
 
 ### 7.1 Endpoint
@@ -227,6 +311,17 @@ Client -> FastAPI /audit -> LangGraph Workflow
   "results": {}
 }
 ```
+
+### 7.4 Response Field Meanings (Practical)
+
+- `status`:
+  - API invocation status (`success` or HTTP error response).
+- `checkpoint_status`:
+  - Stage-wise health of entire pipeline; fastest way to identify failed checkpoint.
+- `checkpoint_details`:
+  - Helpful metadata for debugging (`local_file_path`, `audio_file_path`, counts, etc.).
+- `results`:
+  - Full final LangGraph state including extracted artifacts, structured output, and compliance issues.
 
 ## 8. Environment Variables
 
@@ -280,6 +375,35 @@ D:\Projects\Multimodal_LLMOPS
             `-- video_processor.py
 ```
 
+### 9.2 File-by-File Responsibilities (Detailed)
+
+- `backend/src/api/server.py`:
+  - Defines `POST /audit` and `GET /health`.
+  - Builds initial state and initial checkpoints.
+  - Calls workflow synchronously and returns final JSON.
+
+- `backend/src/graph/state.py`:
+  - Declares `VideoAuditState` typed schema.
+  - Defines shared contract for all nodes (keys and expected shapes).
+
+- `backend/src/graph/workflow.py`:
+  - Registers nodes and exact execution order.
+  - Controls graph entry point and terminal edge.
+
+- `backend/src/graph/nodes.py`:
+  - Implements node business logic.
+  - Merges checkpoint updates across nodes.
+  - Handles RAG + LLM audit response parsing.
+
+- `backend/src/services/video_processor.py`:
+  - Encapsulates media extraction primitives and OCR/STT sequence.
+  - Provides detailed checkpoint-aware failure propagation via `VideoProcessingError`.
+
+- `backend/scripts/index_document.py`:
+  - Extracts guideline text from PDFs (digital layer + image OCR).
+  - Splits/chunks content and uploads embeddings into Qdrant.
+  - Enables retrieval context used by `audio_content_audit`.
+
 ## 10. Runbook
 
 ```bash
@@ -292,3 +416,27 @@ uv run python backend/scripts/index_document.py
 # Start API
 uv run python -m backend.src.api.server
 ```
+
+## 11. Failure Handling and Debug Guide
+
+Common failures and where to inspect:
+- YouTube download fails:
+  - Check `video_download` checkpoint and `errors`.
+  - Verify URL is valid and network access exists.
+- FFmpeg extraction fails:
+  - Check `ffmpeg_audio_extract`/`ffmpeg_frame_extract`.
+  - Confirm `ffmpeg` is installed and on `PATH`.
+- Whisper fails:
+  - Check `whisper_transcription`.
+  - Verify model availability and audio file generation.
+- OCR fails:
+  - Check `paddleocr_extract` and `ocr_line_count` in details.
+- Qdrant/Gemini audit fails:
+  - Check `audio_content_audit` and `errors`.
+  - Verify `QDRANT_*` and `GEMINI_API_KEY`.
+
+Recommended triage order:
+1. Inspect `checkpoint_status`.
+2. Inspect `checkpoint_details`.
+3. Inspect `results.errors`.
+4. Re-run with same `video_id` to compare artifact paths and counts.

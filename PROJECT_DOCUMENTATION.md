@@ -10,7 +10,7 @@ The implementation is workflow-driven using LangGraph and currently supports:
 - Whisper transcription
 - PaddleOCR text extraction from frames
 - Text fusion and analysis-ready structuring
-- Compliance checks using Gemini + Qdrant context retrieval
+- Compliance checks using Gemini + Qdrant hybrid context retrieval (keyword + dense vectors)
 - Checkpoint-level pipeline observability
 
 ## 2. Core Technologies
@@ -38,7 +38,7 @@ The implementation is workflow-driven using LangGraph and currently supports:
 | :--- | :--- |
 | Generation/Audit Model | Gemini 2.5 Flash |
 | Embeddings | Gemini Embeddings |
-| Vector Store | Qdrant |
+| Vector Store | Qdrant (Hybrid retrieval: Dense + Sparse keyword) |
 
 ## 2.4 System Architecture Diagram
 
@@ -71,8 +71,10 @@ The implementation is workflow-driven using LangGraph and currently supports:
    |         +--> fused_payload JSON
    |         +--> structured_output (analysis-ready records)
    |
-   |---> [Qdrant Vector DB]
-   |         +--> similarity context for audit
+   |---> [Qdrant Knowledge Base]
+   |         +--> dense embeddings search
+   |         +--> sparse keyword search
+   |         +--> hybrid retrieval context for audit
    |
    +----> [Gemini 2.5 Flash]
              +--> compliance issues JSON
@@ -110,7 +112,8 @@ Execution order:
   - Generates normalized `structured_output`
 
 - `audio_content_audit`:
-  - Retrieves relevant policy context from Qdrant
+  - Initializes reusable LLM/Qdrant clients (cached)
+  - Retrieves relevant policy context from Qdrant hybrid retrieval
   - Audits multimodal text with Gemini
   - Returns structured compliance issues
 
@@ -124,8 +127,41 @@ Execution order:
 | `index_video` | `video_url`, `video_id` | `local_file_path`, `audio_file_path`, `frame_paths`, `transcript`, `ocr_text`, `video_metadata`, `checkpoint_*`, `errors` | Converts raw URL input into machine-usable multimodal artifacts. |
 | `fusion_layer` | `transcript`, `ocr_text`, `video_id` | `fused_text`, `fused_payload`, `checkpoint_*`, `video_metadata.fusion` | Creates one combined representation that downstream audit can consume consistently. |
 | `structured_output_layer` | `fused_text`, `fused_payload`, `transcript`, `ocr_text`, `video_id`, `video_url` | `structured_output`, `checkpoint_*` | Normalizes extracted content into analysis-ready records for later analytics/reporting use. |
-| `audio_content_audit` | `fused_text` (fallback `transcript`), Qdrant collection | `compliance_issues`, `final_status`, `checkpoint_*`, `errors` | Performs RAG + LLM policy audit over extracted content. |
+| `audio_content_audit` | `fused_text` (fallback `transcript`), `ocr_text`, Qdrant collection | `compliance_issues`, `final_status`, `final_report`, `checkpoint_*`, `errors` | Performs hybrid RAG + LLM policy audit over extracted content. |
 | `visual_compliance_audit` | `ocr_text` | `compliance_issues`, `final_status`, `final_report`, `checkpoint_*` | Adds deterministic keyword safety checks from visual text. |
+
+### 3.4 RAG Client Initialization in `nodes.py`
+
+`audio_content_audit` now uses cached initialization helpers to avoid rebuilding heavy clients on every request:
+- `get_llm_client()`
+- `get_dense_embeddings()`
+- `get_qdrant_client()`
+- `get_vector_store()`
+
+Initialization behavior:
+- Primary mode: `RetrievalMode.HYBRID` with dense embeddings + sparse keyword retrieval.
+- Fallback mode: `RetrievalMode.DENSE` if sparse/hybrid setup is unavailable.
+- This keeps the node resilient while preserving Qdrant as the knowledge base query source.
+
+### 3.5 Prompting Format Used in `audio_content_audit`
+
+System prompt structure:
+- Declares role: senior brand compliance auditor.
+- Injects retrieved policy chunks as `OFFICIAL REGULATORY RULES`.
+- Enforces strict JSON schema:
+  - `compliance_results`
+  - `status`
+  - `final_report`
+
+User message structure:
+- `VIDEO_METADATA`
+- `TRANSCRIPT`
+- `ON-SCREEN TEXT (OCR)`
+
+The LLM output is parsed into normalized workflow fields:
+- `compliance_issues`
+- `final_status`
+- `final_report`
 
 ### 3.3 Video Processing Service Responsibilities (`backend/src/services/video_processor.py`)
 
@@ -240,8 +276,9 @@ Client -> FastAPI /audit -> LangGraph Workflow
   |      +--> analysis-ready records
   |
   +--> [audio_content_audit]
-  |      +--> retrieve context (Qdrant)
-  |      +--> audit (Gemini)
+  |      +--> retrieve hybrid context from Qdrant knowledge base
+  |      +--> apply strict JSON compliance prompt
+  |      +--> audit with Gemini and parse structured output
   |
   +--> [visual_compliance_audit]
   |
@@ -287,6 +324,7 @@ video_url + video_id
 [auditors]
    |- compliance_issues: [{category, description, severity, timestamp}]
    |- final_status: PASS/FAIL
+   |- final_report: summary from LLM audit
 ```
 
 ## 7. API Contract
@@ -340,6 +378,10 @@ video_url + video_id
   - `QDRANT_API_KEY`
   - `QDRANT_COLLECTION_NAME`
   - `QDRANT_VECTOR_NAME`
+  - `QDRANT_ENABLE_HYBRID_SEARCH`
+  - `QDRANT_SPARSE_VECTOR_NAME`
+  - `QDRANT_SPARSE_MODEL`
+  - `QDRANT_TOP_K`
 
 ## 9. Repository Files
 
@@ -393,7 +435,8 @@ D:\Projects\Multimodal_LLMOPS
 - `backend/src/graph/nodes.py`:
   - Implements node business logic.
   - Merges checkpoint updates across nodes.
-  - Handles RAG + LLM audit response parsing.
+  - Initializes cached RAG clients.
+  - Executes Qdrant hybrid retrieval and strict JSON audit prompting/parsing.
 
 - `backend/src/services/video_processor.py`:
   - Encapsulates media extraction primitives and OCR/STT sequence.
@@ -434,6 +477,7 @@ Common failures and where to inspect:
 - Qdrant/Gemini audit fails:
   - Check `audio_content_audit` and `errors`.
   - Verify `QDRANT_*` and `GEMINI_API_KEY`.
+  - If hybrid init fails, verify sparse settings and whether dense fallback is being used.
 
 Recommended triage order:
 1. Inspect `checkpoint_status`.

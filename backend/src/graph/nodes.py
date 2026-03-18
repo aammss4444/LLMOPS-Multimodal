@@ -2,11 +2,12 @@ import json
 import os
 import re
 import logging
+from functools import lru_cache
 from typing import Any, Dict
 
-from langchain_qdrant import QdrantVectorStore
+from langchain_qdrant import FastEmbedSparse, QdrantVectorStore, RetrievalMode
 from qdrant_client import QdrantClient
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 
 from backend.src.graph.state import VideoAuditState
@@ -28,6 +29,86 @@ def merge_checkpoint_state(
     if details:
         detail_map.update(details)
     return {"checkpoint_status": status, "checkpoint_details": detail_map}
+
+
+@lru_cache(maxsize=1)
+def get_llm_client() -> ChatGoogleGenerativeAI:
+    return ChatGoogleGenerativeAI(
+        model=os.getenv("GEMINI_AUDIT_MODEL", "gemini-2.5-flash"),
+        google_api_key=os.getenv("GEMINI_API_KEY"),
+        temperature=0.0,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_dense_embeddings() -> GoogleGenerativeAIEmbeddings:
+    return GoogleGenerativeAIEmbeddings(
+        model=os.getenv("GEMINI_EMBEDDING_MODEL", "models/embedding-001"),
+        google_api_key=os.getenv("GEMINI_API_KEY"),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_qdrant_client() -> QdrantClient:
+    return QdrantClient(
+        url=os.getenv("QDRANT_URL"),
+        api_key=os.getenv("QDRANT_API_KEY"),
+    )
+
+
+@lru_cache(maxsize=1)
+def get_vector_store() -> QdrantVectorStore:
+    client = get_qdrant_client()
+    dense_embeddings = get_dense_embeddings()
+    collection_name = os.getenv("QDRANT_COLLECTION_NAME")
+    vector_name = os.getenv("QDRANT_VECTOR_NAME", "transcript_dense_vector")
+    sparse_vector_name = os.getenv("QDRANT_SPARSE_VECTOR_NAME", "transcript_sparse_vector")
+    use_hybrid = os.getenv("QDRANT_ENABLE_HYBRID_SEARCH", "true").lower() == "true"
+
+    if use_hybrid:
+        try:
+            sparse_embeddings = FastEmbedSparse(
+                model_name=os.getenv("QDRANT_SPARSE_MODEL", "Qdrant/bm25")
+            )
+            return QdrantVectorStore(
+                client=client,
+                collection_name=collection_name,
+                embedding=dense_embeddings,
+                sparse_embedding=sparse_embeddings,
+                retrieval_mode=RetrievalMode.HYBRID,
+                vector_name=vector_name,
+                sparse_vector_name=sparse_vector_name,
+            )
+        except Exception as e:
+            logger.warning(
+                "Hybrid vector store initialization failed, falling back to dense retrieval: %s",
+                str(e),
+            )
+
+    return QdrantVectorStore(
+        client=client,
+        collection_name=collection_name,
+        embedding=dense_embeddings,
+        retrieval_mode=RetrievalMode.DENSE,
+        vector_name=vector_name,
+    )
+
+
+def parse_json_object_from_llm(content: str) -> Dict[str, Any]:
+    text = (content or "").strip()
+    if not text:
+        raise ValueError("Empty LLM response")
+
+    fenced_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL)
+    if fenced_match:
+        text = fenced_match.group(1).strip()
+    else:
+        first_brace = text.find("{")
+        last_brace = text.rfind("}")
+        if first_brace >= 0 and last_brace > first_brace:
+            text = text[first_brace:last_brace + 1]
+
+    return json.loads(text)
 
 
 def index_video(state: VideoAuditState) -> dict[str, Any]:
@@ -183,6 +264,8 @@ def audio_content_node(state: VideoAuditState) -> Dict[str, Any]:
 
     transcript = (state.get("transcript") or "").strip()
     fused_text = (state.get("fused_text") or "").strip()
+    ocr_text_lines = state.get("ocr_text") or []
+    ocr_text = "\n".join([line for line in ocr_text_lines if isinstance(line, str)])
     query_text = fused_text or transcript
 
     if not query_text:
@@ -193,58 +276,117 @@ def audio_content_node(state: VideoAuditState) -> Dict[str, Any]:
             "final_report": "Audit skipped because no extracted multimodal text is available.",
         }
 
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=os.getenv("GEMINI_API_KEY"),
-        temperature=0.0,
-    )
-
-    embed_model = GoogleGenerativeAIEmbeddings(
-        model="models/embedding-001",
-        google_api_key=os.getenv("GEMINI_API_KEY"),
-    )
-
     try:
-        client = QdrantClient(
-            url=os.getenv("QDRANT_URL"),
-            api_key=os.getenv("QDRANT_API_KEY"),
-        )
-        vector_store = QdrantVectorStore(
-            client=client,
-            collection_name=os.getenv("QDRANT_COLLECTION_NAME"),
-            embedding=embed_model,
-        )
+        llm = get_llm_client()
+        vector_store = get_vector_store()
     except Exception as e:
-        logger.error(f"Failed to connect to Qdrant: {e}")
+        logger.error("Failed to initialize RAG clients: %s", str(e))
         return {
             **merge_checkpoint_state(state, updates={"audio_content_audit": "failed"}),
-            "errors": [f"RAG Error: {str(e)}"],
+            "errors": [f"RAG initialization error: {str(e)}"],
         }
 
-    docs = vector_store.similarity_search(query_text, k=3)
-    context = "\n".join([doc.page_content for doc in docs])
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a Brand Compliance Auditor. Audit the extracted multimodal content against the following brand guidelines:\n\n{context}"),
-        ("human", "Extracted Content: {query_text}\n\nIdentify any compliance issues and return them in JSON format with fields: category, description, severity."),
-    ])
-
-    chain = prompt | llm
-    response = chain.invoke({"context": context, "query_text": query_text})
-
-    issues = []
     try:
-        content = response.content
-        match = re.search(r"\[.*\]", content, re.DOTALL)
-        if match:
-            issues = json.loads(match.group(0))
+        top_k = int(os.getenv("QDRANT_TOP_K", "5"))
+        docs = vector_store.similarity_search(query_text, k=top_k)
+        retrieved_rules = "\n\n".join(
+            [f"[Rule {idx}] {doc.page_content}" for idx, doc in enumerate(docs, start=1)]
+        )
     except Exception as e:
-        logger.error(f"Failed to parse audio audit response: {e}")
+        logger.error("Qdrant retrieval failed: %s", str(e))
+        return {
+            **merge_checkpoint_state(state, updates={"audio_content_audit": "failed"}),
+            "errors": [f"RAG retrieval error: {str(e)}"],
+        }
+
+    system_prompt = f"""
+You are a senior brand compliance auditor.
+OFFICIAL REGULATORY RULES:
+{retrieved_rules}
+INSTRUCTIONS:
+1. Analyze the Transcript and OCT text below.
+2. Identify ANY violations of the rules.
+3. Return strictly JSON in the following format:
+{{
+  "compliance_results": [
+    {{
+      "category": "Claim Validation",
+      "severity": "CRITICAL",
+      "description": "Explanation of the violation..."
+    }}
+  ],
+  "status": "FAIL",
+  "final_report": "Summary of findings..."
+}}
+If no violations are found, return:
+{{
+  "compliance_results": [],
+  "status": "PASS",
+  "final_report": "No policy violations were found."
+}}
+""".strip()
+
+    user_message = f"""
+VIDEO_METADATA :{state.get('video_metadata', {})}
+TRANSCRIPT : {transcript}
+ON-SCREEN TEXT (OCR) : {ocr_text}
+""".strip()
+
+    try:
+        response = llm.invoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_message),
+            ]
+        )
+        parsed = parse_json_object_from_llm(str(response.content))
+    except Exception as e:
+        logger.error("Failed to parse audit response: %s", str(e))
+        return {
+            **merge_checkpoint_state(state, updates={"audio_content_audit": "failed"}),
+            "errors": [f"LLM response parse error: {str(e)}"],
+        }
+
+    raw_results = parsed.get("compliance_results") or []
+    issues = []
+    for result in raw_results:
+        if not isinstance(result, dict):
+            continue
+        issues.append(
+            {
+                "category": str(result.get("category", "Compliance")),
+                "description": str(result.get("description", "")),
+                "severity": str(result.get("severity", "MEDIUM")),
+                "timestamp": None,
+            }
+        )
+
+    final_status = str(parsed.get("status", "PASS" if not issues else "FAIL")).upper()
+    if final_status not in {"PASS", "FAIL"}:
+        final_status = "FAIL" if issues else "PASS"
+    final_report = str(
+        parsed.get(
+            "final_report",
+            "No policy violations were found." if final_status == "PASS" else "Policy violations found.",
+        )
+    )
+
+    retrieval_mode = getattr(vector_store, "retrieval_mode", RetrievalMode.DENSE)
+    checkpoint_detail_update = {
+        "rag_top_k": top_k,
+        "rag_retrieved_rules_count": len(docs),
+        "rag_retrieval_mode": str(retrieval_mode),
+    }
 
     return {
-        **merge_checkpoint_state(state, updates={"audio_content_audit": "completed"}),
+        **merge_checkpoint_state(
+            state,
+            updates={"audio_content_audit": "completed"},
+            details=checkpoint_detail_update,
+        ),
         "compliance_issues": issues,
-        "final_status": "PASS" if not issues else "FAIL",
+        "final_status": final_status,
+        "final_report": final_report,
     }
 
 

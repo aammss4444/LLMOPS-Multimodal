@@ -23,6 +23,48 @@ Project root: `D:\Projects\Multimodal_LLMOPS`
 8. Structured output layer produces analysis-ready records.
 9. Audio and visual compliance audit nodes run against extracted content.
 
+## Architecture Diagram
+
+```text
++----------------------------------------------------------+
+| HIGH-LEVEL SYSTEM ARCHITECTURE (MULTIMODAL LLMOPS)      |
++----------------------------------------------------------+
+
+[User/Client]
+   |
+   v
+[REST API Request]
+   |
+   v
+[FastAPI Server]
+   |
+   v
+[LangGraph Orchestrator]
+   |---> [Video Processor: yt-dlp + ffmpeg + whisper + OCR]
+   |---> [Fusion Layer + Structured Output Layer]
+   |---> [Qdrant Retrieval]
+   |---> [Gemini 2.5 Flash Audit]
+   |
+   v
+[JSON Response + Checkpoint Status]
+```
+
+## Flow Diagram
+
+```text
+URL Input -> /audit -> index_video
+         -> download video
+         -> ffmpeg audio extract
+         -> whisper transcript
+         -> ffmpeg frame extract
+         -> paddleocr text
+         -> fusion_layer
+         -> structured_output_layer
+         -> audio_content_audit
+         -> visual_compliance_audit
+         -> final response
+```
+
 ## Checkpoint Tracking
 
 Workflow exposes stage-level status using:

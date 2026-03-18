@@ -40,6 +40,37 @@ The implementation is workflow-driven using LangGraph and currently supports:
 | Embeddings | Gemini Embeddings |
 | Vector Store | Qdrant |
 
+## 2.4 System Architecture Diagram
+
+```text
++----------------------------------------------------------+
+| HIGH-LEVEL SYSTEM ARCHITECTURE (MULTIMODAL LLMOPS)      |
++----------------------------------------------------------+
+
+[User/Client]
+   |
+   v
+[REST API Request]
+   |
+   v
+[Server: backend/src/api/server.py]
+   |
+   v
+[LangGraph Orchestrator]
+   |---> [Video Processor Service]
+   |         +--> yt-dlp download
+   |         +--> ffmpeg audio extract
+   |         +--> whisper transcription
+   |         +--> ffmpeg frame extract
+   |         +--> paddleocr extraction
+   |
+   |---> [Fusion + Structured Output]
+   |
+   |---> [Qdrant Vector DB]
+   |
+   +----> [Gemini 2.5 Flash]
+```
+
 ## 3. Implemented Workflow
 
 Workflow entrypoint: `index_video`  
@@ -138,6 +169,42 @@ Client -> FastAPI /audit -> LangGraph Workflow
        -> API response (results + checkpoint maps)
 ```
 
+## 6.1 Detailed Flow Diagram
+
+```text
+[User]
+  |
+  | POST /audit (video_url, video_id)
+  v
+[FastAPI Server]
+  |
+  | initialize checkpoint state
+  v
+[LangGraph]
+  |
+  +--> [index_video]
+  |      +--> Download MP4
+  |      +--> Extract WAV audio (ffmpeg)
+  |      +--> Transcribe (whisper)
+  |      +--> Extract JPG frames (ffmpeg)
+  |      +--> OCR text (paddleocr)
+  |
+  +--> [fusion_layer]
+  |      +--> merged transcript + OCR JSON
+  |
+  +--> [structured_output_layer]
+  |      +--> analysis-ready records
+  |
+  +--> [audio_content_audit]
+  |      +--> retrieve context (Qdrant)
+  |      +--> audit (Gemini)
+  |
+  +--> [visual_compliance_audit]
+  |
+  v
+[Final Response]
+```
+
 ## 7. API Contract
 
 ### 7.1 Endpoint
@@ -187,6 +254,31 @@ Client -> FastAPI /audit -> LangGraph Workflow
 - `backend/src/graph/state.py`: typed state schema
 - `backend/src/services/video_processor.py`: local media processing
 - `backend/scripts/index_document.py`: PDF ingestion and Qdrant indexing
+
+## 9.1 Directory Diagram
+
+```text
+D:\Projects\Multimodal_LLMOPS
+|-- README.md
+|-- PROJECT_DOCUMENTATION.md
+|-- pyproject.toml
+|-- uv.lock
+|-- main.py
+`-- backend/
+    |-- data/
+    |-- scripts/
+    |   `-- index_document.py
+    `-- src/
+        |-- api/
+        |   |-- server.py
+        |   `-- telementry.py
+        |-- graph/
+        |   |-- nodes.py
+        |   |-- state.py
+        |   `-- workflow.py
+        `-- services/
+            `-- video_processor.py
+```
 
 ## 10. Runbook
 

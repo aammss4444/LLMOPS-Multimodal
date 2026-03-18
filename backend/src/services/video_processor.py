@@ -20,6 +20,13 @@ import whisper
 logger = logging.getLogger("video-processor")
 
 
+class VideoProcessingError(Exception):
+    def __init__(self, message: str, checkpoint_status: dict[str, str], checkpoint_details: dict[str, Any]):
+        super().__init__(message)
+        self.checkpoint_status = checkpoint_status
+        self.checkpoint_details = checkpoint_details
+
+
 class VideoProcessingService:
     def __init__(self):
         self.local_storage_dir = os.getenv("LOCAL_VIDEO_STORAGE_DIR", "backend/data/videos")
@@ -135,11 +142,39 @@ class VideoProcessingService:
 
         audio_path = str(Path(self.audio_dir) / f"{safe_id}.wav")
         frames_output_dir = str(Path(self.frames_dir) / safe_id)
+        checkpoint_status = {
+            "video_download": "completed",
+            "ffmpeg_audio_extract": "pending",
+            "whisper_transcription": "pending",
+            "ffmpeg_frame_extract": "pending",
+            "paddleocr_extract": "pending",
+        }
+        checkpoint_details: dict[str, Any] = {
+            "local_file_path": video_path,
+        }
 
-        extracted_audio = self.extract_audio(video_path, audio_path)
-        transcript = self.transcribe_audio(extracted_audio)
-        frame_paths = self.extract_frames(video_path, frames_output_dir)
-        ocr_text = self.extract_ocr_text(frame_paths)
+        try:
+            extracted_audio = self.extract_audio(video_path, audio_path)
+            checkpoint_status["ffmpeg_audio_extract"] = "completed"
+            checkpoint_details["audio_file_path"] = extracted_audio
+
+            transcript = self.transcribe_audio(extracted_audio)
+            checkpoint_status["whisper_transcription"] = "completed"
+            checkpoint_details["transcript_char_count"] = len(transcript)
+
+            frame_paths = self.extract_frames(video_path, frames_output_dir)
+            checkpoint_status["ffmpeg_frame_extract"] = "completed"
+            checkpoint_details["frame_count"] = len(frame_paths)
+
+            ocr_text = self.extract_ocr_text(frame_paths)
+            checkpoint_status["paddleocr_extract"] = "completed"
+            checkpoint_details["ocr_line_count"] = len(ocr_text)
+        except Exception as e:
+            raise VideoProcessingError(
+                message=f"Video processing failed: {str(e)}",
+                checkpoint_status=checkpoint_status,
+                checkpoint_details=checkpoint_details,
+            ) from e
 
         return {
             "local_file_path": video_path,
@@ -147,9 +182,11 @@ class VideoProcessingService:
             "frame_paths": frame_paths,
             "transcript": transcript,
             "ocr_text": ocr_text,
+            "checkpoint_status": checkpoint_status,
+            "checkpoint_details": checkpoint_details,
             "video_metadata": {
                 "platform": "youtube",
-                "extraction": "ffmpeg+whisper",
+                "extraction": "ffmpeg+whisper+paddleocr",
                 "frame_count": len(frame_paths),
             },
         }

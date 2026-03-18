@@ -1,27 +1,60 @@
 # Multimodal LLMOps
 
-Python backend project for multimodal video compliance auditing with LangGraph-based orchestration and LLM-driven analysis.
+Backend system for multimodal video compliance auditing with FastAPI, LangGraph orchestration, local media processing, OCR, and RAG-assisted policy checks.
 
 Project root: `D:\Projects\Multimodal_LLMOPS`
 
 ## Current Status
 
-- Project scaffold is in place and dependencies are configured with `uv`.
-- Graph state schema is implemented in `backend/src/graph/state.py`.
-- Graph nodes and workflow are partially implemented in `backend/src/graph/nodes.py` and `backend/src/graph/workflow.py`.
-- API, service, and indexing script modules still need implementation work.
+- End-to-end audit workflow is implemented and callable via `POST /audit`.
+- Local media pipeline is active: YouTube download -> FFmpeg extraction -> Whisper transcription -> PaddleOCR frame text extraction.
+- Fusion and structured-output layers are implemented before compliance audit nodes.
+- Checkpoint-based execution tracking is implemented in workflow state and API response.
+
+## Implemented Audit Flow
+
+1. User submits YouTube URL to API.
+2. FastAPI creates initial audit state and triggers LangGraph workflow.
+3. Video download is executed and saved locally.
+4. FFmpeg extracts WAV audio and frame images.
+5. Whisper transcribes extracted audio.
+6. PaddleOCR extracts text from frames.
+7. Fusion layer combines transcript + OCR into multimodal JSON payload.
+8. Structured output layer produces analysis-ready records.
+9. Audio and visual compliance audit nodes run against extracted content.
+
+## Checkpoint Tracking
+
+Workflow exposes stage-level status using:
+- `checkpoint_status`
+- `checkpoint_details`
+
+Tracked checkpoints:
+- `url_received`
+- `audit_triggered`
+- `video_download`
+- `ffmpeg_audio_extract`
+- `whisper_transcription`
+- `ffmpeg_frame_extract`
+- `paddleocr_extract`
+- `text_fusion`
+- `structured_output`
+- `audio_content_audit`
+- `visual_compliance_audit`
 
 ## Tech Stack
 
 - Runtime: Python 3.12+
-- Package management: `uv` (`pyproject.toml`, `uv.lock`)
-- API framework: FastAPI + Uvicorn
+- API: FastAPI, Uvicorn
 - Orchestration: LangGraph, LangChain
-- LLM integrations: Azure OpenAI, LangChain OpenAI, LangChain Google GenAI
-- Cloud/services: Azure AI Search, Azure Monitor OpenTelemetry
-- Data/document tooling: pandas, pypdf, yt-dlp, firecrawl-py
-- Storage/cache/db clients: SQLAlchemy, psycopg2-binary, Redis
-- App/UI dependency present: Streamlit
+- LLM: Gemini 2.5 Flash (`langchain-google-genai`)
+- Embeddings + Vector DB: Gemini embeddings + Qdrant
+- Video ingestion: `yt-dlp`
+- Media processing: `ffmpeg`
+- Audio transcription: `openai-whisper`
+- OCR: `paddleocr`, `paddlepaddle`
+- Document indexing: `PyMuPDF`, `Pillow`, `numpy`, `langchain-text-splitters`
+- Package management: `uv`
 
 ## Repository Structure
 
@@ -31,67 +64,54 @@ D:\Projects\Multimodal_LLMOPS
 |-- PROJECT_DOCUMENTATION.md
 |-- pyproject.toml
 |-- uv.lock
-|-- .env.example
 |-- main.py
 `-- backend/
     |-- data/
-    |   |-- 1001a-influencer-guide-508_1.pdf
-    |   `-- youtube-ad-specs.pdf
     |-- scripts/
     |   `-- index_document.py
-    |-- src/
-    |   |-- api/
-    |   |   |-- server.py
-    |   |   `-- telementry.py
-    |   |-- graph/
-    |   |   |-- __init__.py
-    |   |   |-- nodes.py
-    |   |   |-- state.py
-    |   |   `-- workflow.py
-    |   `-- services/
-    |       |-- __init__.py
-    |       `-- video_processor.py
-    `-- tests/
+    `-- src/
+        |-- api/
+        |   |-- server.py
+        |   `-- telementry.py
+        |-- graph/
+        |   |-- nodes.py
+        |   |-- state.py
+        |   `-- workflow.py
+        `-- services/
+            `-- video_processor.py
 ```
 
 ## Setup
 
-1. Create/install environment and dependencies:
+1. Install dependencies:
    - `uv sync`
-2. Copy env template and fill values:
-   - `copy .env.example .env`
-3. Run the starter entrypoint:
-   - `uv run python main.py`
+2. Configure environment variables in `.env`.
+3. Ensure `ffmpeg` is installed and available on system `PATH`.
 
-## Environment Variables
+## Run
 
-Key variables currently referenced in project config/files:
+```bash
+# Start API
+uv run python -m backend.src.api.server
+```
 
-- Azure OpenAI:
-  - `AZURE_OPENAI_API_KEY`
-  - `AZURE_OPENAI_ENDPOINT`
-  - `AZURE_OPENAI_API_VERSION`
-  - `AZURE_OPENAI_CHAT_DEPLOYMENT`
-  - `AZURE_OPENAI_EMBEDDING_DEPLOYMENT`
-- Azure AI Search:
-  - `AZURE_SEARCH_ENDPOINT`
-  - `AZURE_SEARCH_API_KEY`
-  - `AZURE_SEARCH_INDEX_NAME`
-- Local video storage:
-  - `LOCAL_VIDEO_STORAGE_DIR` (optional, defaults to `backend/data/videos`)
-  - `LOCAL_AUDIO_STORAGE_DIR` (optional, defaults to `backend/data/audio`)
-  - `LOCAL_FRAMES_STORAGE_DIR` (optional, defaults to `backend/data/frames`)
-  - `FRAME_INTERVAL_SECONDS` (optional, defaults to `2`)
-- Tracing/observability:
-  - `APPLICATIONSINIGHTS_CONNECTION_STRING`
-  - `LANGCHAIN_TRACING_V2`
-  - `LANGCHAIN_ENDPOINT`
-  - `LANGCHAIN_API_KEY`
-  - `LANCHAIN_PROJECT_NAME`
-- Gemini:
-  - `GEMINI_API_KEY`
+## API
 
-## Notes
+- Health:
+  - `GET /health`
+- Audit:
+  - `POST /audit`
+  - Body:
 
-- The canonical implementation target for workflow logic is under `backend/src/graph/`.
-- For full architecture and module-level implementation details, see `PROJECT_DOCUMENTATION.md`.
+```json
+{
+  "video_url": "https://www.youtube.com/watch?v=...",
+  "video_id": "campaign_001"
+}
+```
+
+Response includes:
+- `status`
+- `checkpoint_status`
+- `checkpoint_details`
+- `results` (final LangGraph state)

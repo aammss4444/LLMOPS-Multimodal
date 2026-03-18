@@ -9,7 +9,7 @@ class ComplianceIssue(TypedDict):
     timestamp: Optional[str]
 
 
-class VideoAuditState(TypedDict):
+class VideoAuditState(TypedDict, total=False):
     video_url: str
     video_id: str
 
@@ -19,6 +19,11 @@ class VideoAuditState(TypedDict):
     video_metadata: Dict[str, Any]
     transcript: Optional[str]
     ocr_text: Optional[List[str]]
+    fused_text: Optional[str]
+    fused_payload: Optional[Dict[str, Any]]
+    structured_output: Optional[Dict[str, Any]]
+    checkpoint_status: Dict[str, str]
+    checkpoint_details: Dict[str, Any]
 
     compliance_issues: Annotated[List[ComplianceIssue], operator.add]
 

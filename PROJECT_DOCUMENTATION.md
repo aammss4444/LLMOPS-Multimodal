@@ -1,271 +1,202 @@
 # Multimodal LLMOps - Project Documentation
 
-## 1. Project Overview
+## 1. Overview
 
-`Multimodal LLMOps` is a Python-based platform for auditing video content (e.g., advertisements, brand videos) against compliance and policy requirements. It leverages multimodal inputs (audio, visual text, and reference documents) to provide structured reports.
+`Multimodal LLMOps` is a FastAPI backend that audits YouTube video content against policy/guideline knowledge using multimodal extraction (speech + visual text) and RAG-based LLM analysis.
 
-The current video pipeline is fully local for media extraction:
-- Download source video (YouTube)
-- Extract audio via `ffmpeg` for speech processing
-- Run speech recognition with `Whisper` to generate transcript
-- Extract frames via `ffmpeg` for OCR
-- Run OCR over frames and perform compliance checks
+The implementation is workflow-driven using LangGraph and currently supports:
+- Video download from YouTube
+- Audio/frame extraction via FFmpeg
+- Whisper transcription
+- PaddleOCR text extraction from frames
+- Text fusion and analysis-ready structuring
+- Compliance checks using Gemini + Qdrant context retrieval
+- Checkpoint-level pipeline observability
 
----
+## 2. Core Technologies
 
-## 2. Tools & Technologies
-
-### 2.1 AI & Orchestration
-| Tool | Purpose |
+### 2.1 Orchestration, API, and Runtime
+| Component | Technology |
 | :--- | :--- |
-| **LangGraph** | Workflow orchestration and state management via directed graphs. |
-| **LangChain** | Framework for developing LLM applications and vector store integrations. |
-| **Qdrant** | High-performance vector database for storing and retrieving semantic information. |
-| **PaddleOCR** | OCR on extracted video frames and embedded images in PDFs. |
-| **PyMuPDF (fitz)** | Efficient parsing of the digital text layer in PDF documents. |
-| **FFmpeg** | Local extraction of audio and frames from videos for speech and OCR processing. |
-| **Whisper** | Local speech-to-text transcription from extracted WAV audio. |
-| **Gemini Embeddings** | Vectorization of content using `models/embedding-001`. |
-| **Azure OpenAI** | LLM reasoning for compliance analysis. |
+| Runtime | Python 3.12+ |
+| API | FastAPI, Uvicorn |
+| Workflow | LangGraph |
+| App Framework | LangChain |
+| Dependency Manager | uv |
 
-### 2.2 Platform & Infrastructure
-| Tool | Purpose |
+### 2.2 Multimodal Processing
+| Component | Technology |
 | :--- | :--- |
-| **FastAPI** | Backend API framework. |
-| **uv** | Python dependency and environment management. |
-| **Azure Monitor OpenTelemetry** | Observability and tracing. |
+| Video Download | yt-dlp |
+| Media Extraction | FFmpeg |
+| Speech-to-Text | openai-whisper |
+| OCR | PaddleOCR, PaddlePaddle |
+| PDF Text + OCR Indexing | PyMuPDF, Pillow, numpy |
 
----
+### 2.3 LLM and Retrieval
+| Component | Technology |
+| :--- | :--- |
+| Generation/Audit Model | Gemini 2.5 Flash |
+| Embeddings | Gemini Embeddings |
+| Vector Store | Qdrant |
 
-## 3. Methodologies
+## 3. Implemented Workflow
 
-### 3.1 Hybrid PDF Extraction
-To maximize policy coverage from guideline documents:
-1. **Digital Layer**: `PyMuPDF` extracts searchable text.
-2. **Image Layer**: `PaddleOCR` extracts text from embedded images.
+Workflow entrypoint: `index_video`  
+Execution order:
+1. `index_video`
+2. `fusion_layer`
+3. `structured_output_layer`
+4. `audio_content_audit`
+5. `visual_compliance_audit`
+6. `END`
 
-### 3.2 Retrieval-Augmented Generation (RAG)
-Relevant policy chunks are indexed in **Qdrant**. During audit:
-- Whisper transcript is used as the retrieval query.
-- Qdrant returns relevant policy context.
-- LLM audits content against retrieved rules.
+### 3.1 Node Responsibilities
 
-### 3.3 State-Based Orchestration
-The pipeline runs as a **LangGraph State Machine**:
-- Graceful failure handling in each node.
-- Persistent, typed workflow state through `VideoAuditState`.
+- `index_video`:
+  - Validates YouTube URL
+  - Downloads MP4 locally
+  - Runs FFmpeg extraction
+  - Runs Whisper transcription
+  - Runs PaddleOCR on extracted frames
+  - Returns extracted media/text artifacts
 
----
+- `fusion_layer`:
+  - Combines transcript text and OCR text
+  - Produces `fused_text`
+  - Produces JSON `fused_payload`
 
-## 4. High-Level System Architecture
+- `structured_output_layer`:
+  - Converts extracted content into analysis-ready records
+  - Generates normalized `structured_output`
 
-```text
-+----------------------------------------------------------+
-| HIGH-LEVEL SYSTEM ARCHITECTURE (MULTIMODAL LLMOPS)      |
-+----------------------------------------------------------+
+- `audio_content_audit`:
+  - Retrieves relevant policy context from Qdrant
+  - Audits multimodal text with Gemini
+  - Returns structured compliance issues
 
-[User/Client]
-   |
-   v
-[REST API Request]
-   |
-   v
-[Server: backend/src/api/server.py]
-   |
-   v
-[LangGraph Orchestrator]
-   |---> [FFmpeg + Whisper Video Processing Service]
-   |---> [Hybrid PDF Extractor]
-   |          |
-   |          v
-   |      [Gemini Embeddings]
-   |          |
-   |          v
-   +------> [Qdrant Vector DB]
-   |
-   +------> [Azure OpenAI]
-```
+- `visual_compliance_audit`:
+  - Runs keyword-based visual risk checks on OCR text
 
----
+## 4. Checkpoint Model
 
-## 5. Component Diagram
+The API and workflow maintain explicit stage checkpoints.
 
-```text
-+----------------------------------------------------------+
-| COMPONENT VIEW                                           |
-+----------------------------------------------------------+
+### 4.1 Checkpoint Fields
+- `checkpoint_status: Dict[str, str]`
+- `checkpoint_details: Dict[str, Any]`
 
-+-----------------------------------------------+
-| Server (backend/src/api/server.py)            |
-| - POST /audit(video_url)                      |
-| - GET /health()                               |
-+-----------------------------------------------+
-                  |
-                  | triggers
-                  v
-+-----------------------------------------------+
-| Workflow (LangGraph State Machine)            |
-| - State: VideoAuditState                      |
-| - Nodes: index_video, audio_content_audit,    |
-|          visual_compliance_audit              |
-+-----------------------------------------------+
-      |                          |
-      | Index_Video_Node         | Audio_Auditor_Node
-      v                          v
-+---------------------+    +----------------------+
-| VideoProcessor      |    | VectorStore (Qdrant) |
-| - download_youtube()|    | - similarity_search()|
-| - extract_audio()   |    +----------------------+
-| - transcribe_audio()|
-| - extract_frames()  |
-| - extract_ocr_text()|
-+---------------------+
+### 4.2 Tracked Checkpoints
+- `url_received`
+- `audit_triggered`
+- `video_download`
+- `ffmpeg_audio_extract`
+- `whisper_transcription`
+- `ffmpeg_frame_extract`
+- `paddleocr_extract`
+- `text_fusion`
+- `structured_output`
+- `audio_content_audit`
+- `visual_compliance_audit`
 
-+------------------------------+
-| DocumentProcessor            |
-| - extract_digital_text()     |
-| - extract_image_ocr()        |
-| - generate_chunks()          |
-+------------------------------+
-              |
-              | Indexing Script
-              v
-         [Qdrant VectorStore]
-```
+Checkpoint values are updated during execution (`pending`, `completed`, `failed`, or `skipped`).
 
----
+## 5. State Schema (`VideoAuditState`)
 
-## 6. Data Flow Pipeline (Audit Workflow)
+Main keys in workflow state:
+- Request/context:
+  - `video_url`
+  - `video_id`
+- Extracted artifacts:
+  - `local_file_path`
+  - `audio_file_path`
+  - `frame_paths`
+  - `transcript`
+  - `ocr_text`
+- Fusion and normalized outputs:
+  - `fused_text`
+  - `fused_payload`
+  - `structured_output`
+- Audit outputs:
+  - `compliance_issues`
+  - `final_status`
+  - `final_report`
+  - `errors`
+- Observability:
+  - `checkpoint_status`
+  - `checkpoint_details`
+
+## 6. Data Flow
 
 ```text
-+----------------------------------------------------------+
-| DATA FLOW PIPELINE (AUDIT WORKFLOW)                      |
-+----------------------------------------------------------+
-
-[User]
-  |
-  | POST /audit (video_url, video_id)
-  v
-[FastAPI Server]
-  |
-  | Start Workflow (VideoAuditState)
-  v
-[LangGraph Orchestrator]
-  |\
-  | \--> [VideoProcessor]
-  |         |
-  |         +--> Download MP4
-  |         +--> Extract WAV audio (ffmpeg)
-  |         +--> Speech recognition (Whisper)
-  |         +--> Transcript
-  |         +--> Extract JPG frames (ffmpeg)
-  |         +--> OCR text (PaddleOCR)
-  |
-  +--> [Qdrant Vector Store]
-  |       |
-  |       +--> Policy Context (RAG retrieval)
-  |
-  +--> [LLM: Azure OpenAI]
-          |
-          +--> Compliance Issues (JSON)
-
-[LangGraph Orchestrator]
-  |
-  | Final Audit State
-  v
-[FastAPI Server]
-  |
-  | JSON Report
-  v
-[User]
+Client -> FastAPI /audit -> LangGraph Workflow
+       -> index_video (download + ffmpeg + whisper + OCR)
+       -> fusion_layer (transcript + OCR fusion JSON)
+       -> structured_output_layer (analysis-ready records)
+       -> audio_content_audit (RAG + Gemini)
+       -> visual_compliance_audit
+       -> API response (results + checkpoint maps)
 ```
 
----
+## 7. API Contract
 
-## 7. Storage Schema (Qdrant Metadata + Video Insights)
-
-```text
-+----------------------------------------------------------+
-| STORAGE SCHEMA (QDRANT METADATA + VIDEO INSIGHTS)        |
-+----------------------------------------------------------+
-
-[VECTOR_LOGS]
-   |
-   | contains (1-to-many)
-   v
-[CHUNK]
-   |- page_content      : text payload
-   |- source            : original PDF filename
-   |- page              : document page number
-   |- extraction_method : digital OR ocr
-   |- image_index       : optional image index on page
-
-[VIDEO_INSIGHTS]
-   |- video_id         : local workflow video ID
-   |- local_file_path  : downloaded video path
-   |- audio_file_path  : extracted WAV path
-   |- frame_paths      : extracted frame file paths
-   |- transcript       : Whisper transcript output
-   |- ocr_elements     : visual text from extracted frames
-```
-
----
-
-## 8. Workflow State Schema (VideoAuditState)
-
-- `video_url`: input video URL.
-- `video_id`: caller-provided or default ID.
-- `local_file_path`: downloaded video path.
-- `audio_file_path`: extracted audio path (WAV).
-- `frame_paths`: list of extracted frame image paths.
-- `video_metadata`: platform and extraction metadata.
-- `transcript`: transcript text from Whisper speech recognition.
-- `ocr_text`: OCR lines extracted from frames.
-- `compliance_issues`: accumulated structured issues.
-- `final_status`: `PASS` or `FAIL`.
-- `final_report`: summary report string.
-- `errors`: accumulated system/process errors.
-
----
-
-## 9. Project Structure
-
-- `backend/scripts/index_document.py`: Indexes guideline docs into Qdrant.
-- `backend/src/api/server.py`: FastAPI entrypoint.
-- `backend/src/graph/state.py`: Workflow state schema.
-- `backend/src/graph/nodes.py`: Graph node implementations.
-- `backend/src/graph/workflow.py`: Node orchestration.
-- `backend/src/services/video_processor.py`: YouTube download + ffmpeg extraction + Whisper transcription + OCR.
-- `backend/data/`: Local data assets.
-
----
-
-## 10. Setup and Usage
-
-### 10.1 Environment Setup
-1. Install `uv`.
-2. Run `uv sync`.
-3. Configure `.env` with required keys for Gemini, Azure OpenAI, Qdrant, and optional local path settings.
-4. Ensure `ffmpeg` is installed and available on system `PATH`.
-5. Configure Whisper runtime options (optional):
-   - `WHISPER_MODEL` (default: `base`)
-   - `WHISPER_LANGUAGE` (default: `en`)
-
-### 10.2 Run
-```bash
-# Index guideline documents
-uv run python backend/scripts/index_document.py
-
-# Start API server
-uv run python -m backend.src.api.server
-```
-
-### 10.3 Audit API
+### 7.1 Endpoint
 - `POST /audit`
-- Body:
+
+### 7.2 Request
 ```json
 {
   "video_url": "https://www.youtube.com/watch?v=...",
   "video_id": "campaign_001"
 }
+```
+
+### 7.3 Response (high-level)
+```json
+{
+  "status": "success",
+  "checkpoint_status": {},
+  "checkpoint_details": {},
+  "results": {}
+}
+```
+
+## 8. Environment Variables
+
+- Storage and extraction:
+  - `LOCAL_VIDEO_STORAGE_DIR`
+  - `LOCAL_AUDIO_STORAGE_DIR`
+  - `LOCAL_FRAMES_STORAGE_DIR`
+  - `FRAME_INTERVAL_SECONDS`
+- Whisper:
+  - `WHISPER_MODEL`
+  - `WHISPER_LANGUAGE`
+- Gemini:
+  - `GEMINI_API_KEY`
+- Qdrant:
+  - `QDRANT_URL`
+  - `QDRANT_API_KEY`
+  - `QDRANT_COLLECTION_NAME`
+  - `QDRANT_VECTOR_NAME`
+
+## 9. Repository Files
+
+- `backend/src/api/server.py`: API server and workflow trigger
+- `backend/src/graph/workflow.py`: graph definition and node order
+- `backend/src/graph/nodes.py`: node logic (indexing, fusion, audit)
+- `backend/src/graph/state.py`: typed state schema
+- `backend/src/services/video_processor.py`: local media processing
+- `backend/scripts/index_document.py`: PDF ingestion and Qdrant indexing
+
+## 10. Runbook
+
+```bash
+# Install deps
+uv sync
+
+# Index guideline documents into Qdrant
+uv run python backend/scripts/index_document.py
+
+# Start API
+uv run python -m backend.src.api.server
 ```

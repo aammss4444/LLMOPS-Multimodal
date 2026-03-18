@@ -10,8 +10,9 @@ The implementation is workflow-driven using LangGraph and currently supports:
 - Whisper transcription
 - PaddleOCR text extraction with RapidOCR fallback for runtime resilience
 - Text fusion and analysis-ready structuring
-- Compliance checks using Gemini + Qdrant hybrid context retrieval (keyword + dense vectors)
+- Compliance checks using Gemini + Qdrant retrieval (hybrid primary, dense fallback)
 - Checkpoint-level pipeline observability
+- Final verdict aggregation across both audio and visual compliance nodes
 
 ## 2. Core Technologies
 
@@ -38,7 +39,7 @@ The implementation is workflow-driven using LangGraph and currently supports:
 | :--- | :--- |
 | Generation/Audit Model | Gemini 2.5 Flash |
 | Embeddings | Gemini Embeddings |
-| Vector Store | Qdrant (Hybrid retrieval: Dense + Sparse keyword) |
+| Vector Store | Qdrant (Hybrid retrieval primary, dense fallback) |
 
 ## 2.4 System Architecture Diagram
 
@@ -73,13 +74,16 @@ The implementation is workflow-driven using LangGraph and currently supports:
    |         +--> structured_output (analysis-ready records)
    |
    |---> [Qdrant Knowledge Base]
-   |         +--> dense embeddings search
-   |         +--> sparse keyword search
-   |         +--> hybrid retrieval context for audit
+   |         +--> hybrid retrieval (dense + sparse keyword)
+   |         +--> automatic dense fallback when sparse retrieval fails
    |
    +----> [Gemini 2.5 Flash]
              +--> compliance issues JSON
-             +--> final pass/fail status
+             +--> audio audit pass/fail status
+   |
+   +----> [Visual Compliance Node]
+             +--> visual issues
+             +--> merged final pass/fail status
 ```
 
 ## 3. Implemented Workflow
@@ -114,12 +118,15 @@ Execution order:
 
 - `audio_content_audit`:
   - Initializes reusable LLM/Qdrant clients (cached)
-  - Retrieves relevant policy context from Qdrant hybrid retrieval
+  - Retrieves relevant policy context from Qdrant
+  - Uses hybrid retrieval first, falls back to dense retrieval when sparse runtime is incompatible (e.g. `query_embed` errors)
   - Audits multimodal text with Gemini
   - Returns structured compliance issues
 
 - `visual_compliance_audit`:
   - Runs keyword-based visual risk checks on OCR text
+  - Merges visual findings with previously generated audio findings
+  - Preserves prior `final_status`/`final_report` instead of overwriting them
 
 ### 3.2 Node Input/Output Contracts
 
@@ -128,8 +135,8 @@ Execution order:
 | `index_video` | `video_url`, `video_id` | `local_file_path`, `audio_file_path`, `frame_paths`, `transcript`, `ocr_text`, `video_metadata`, `checkpoint_*`, `errors` | Converts raw URL input into machine-usable multimodal artifacts. |
 | `fusion_layer` | `transcript`, `ocr_text`, `video_id` | `fused_text`, `fused_payload`, `checkpoint_*`, `video_metadata.fusion` | Creates one combined representation that downstream audit can consume consistently. |
 | `structured_output_layer` | `fused_text`, `fused_payload`, `transcript`, `ocr_text`, `video_id`, `video_url` | `structured_output`, `checkpoint_*` | Normalizes extracted content into analysis-ready records for later analytics/reporting use. |
-| `audio_content_audit` | `fused_text` (fallback `transcript`), `ocr_text`, Qdrant collection | `compliance_issues`, `final_status`, `final_report`, `checkpoint_*`, `errors` | Performs hybrid RAG + LLM policy audit over extracted content. |
-| `visual_compliance_audit` | `ocr_text` | `compliance_issues`, `final_status`, `final_report`, `checkpoint_*` | Adds deterministic keyword safety checks from visual text. |
+| `audio_content_audit` | `fused_text` (fallback `transcript`), `ocr_text`, Qdrant collection | `compliance_issues`, `final_status`, `final_report`, `checkpoint_*`, `errors` | Performs RAG + LLM policy audit using hybrid retrieval with dense fallback. |
+| `visual_compliance_audit` | `ocr_text`, existing `compliance_issues`, existing `final_status` | merged `compliance_issues`, merged `final_status`, merged `final_report`, `checkpoint_*` | Adds deterministic visual checks and merges final verdict across both audit stages. |
 
 ### 3.4 RAG Client Initialization in `nodes.py`
 
@@ -141,7 +148,7 @@ Execution order:
 
 Initialization behavior:
 - Primary mode: `RetrievalMode.HYBRID` with dense embeddings + sparse keyword retrieval.
-- Fallback mode: `RetrievalMode.DENSE` if sparse/hybrid setup is unavailable.
+- Fallback mode: `RetrievalMode.DENSE` if sparse/hybrid setup is unavailable or query-time sparse embedding compatibility fails.
 - Sparse model default: `prithvida/Splade_PP_en_v1`.
 - This keeps the node resilient while preserving Qdrant as the knowledge base query source.
 
@@ -306,10 +313,12 @@ Client -> FastAPI /audit -> LangGraph Workflow
   |
   +--> [audio_content_audit]
   |      +--> retrieve hybrid context from Qdrant knowledge base
+  |      +--> fallback to dense retrieval on sparse incompatibility
   |      +--> apply strict JSON compliance prompt
   |      +--> audit with Gemini and parse structured output
   |
   +--> [visual_compliance_audit]
+  |      +--> merge visual issues with prior audio issues/status
   |
   v
 [Final Response]
@@ -510,7 +519,7 @@ Common failures and where to inspect:
 - Qdrant/Gemini audit fails:
   - Check `audio_content_audit` and `errors`.
   - Verify `QDRANT_*` and `GEMINI_API_KEY`.
-  - If hybrid init fails, verify sparse settings and whether dense fallback is being used.
+  - If hybrid/sparse query fails (for example `query_embed` errors), verify sparse settings and confirm dense fallback is being used.
 
 Recommended triage order:
 1. Inspect `checkpoint_status`.

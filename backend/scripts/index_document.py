@@ -179,9 +179,12 @@ def collect_pdf_documents(pdf_path: str, ocr_engine: PaddleOCR, rapidocr_engine:
 
 def ensure_collection(client: QdrantClient, collection_name: str) -> None:
     """Create/update collection for dense+sparse (hybrid) retrieval."""
+    if client.collection_exists(collection_name):
+        client.delete_collection(collection_name)
+
     vector_name = os.getenv("QDRANT_VECTOR_NAME", "transcript_dense_vector")
     sparse_vector_name = os.getenv("QDRANT_SPARSE_VECTOR_NAME", "transcript_sparse_vector")
-    embedding_dimensions = int(os.getenv("GEMINI_EMBEDDING_DIMENSIONS", "768"))
+    embedding_dimensions = int(os.getenv("GEMINI_EMBEDDING_DIMENSIONS", "3072"))
     enable_hybrid = os.getenv("QDRANT_ENABLE_HYBRID_SEARCH", "true").lower() == "true"
 
     if not client.collection_exists(collection_name):

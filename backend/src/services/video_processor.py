@@ -13,6 +13,14 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+# ── FFMPEG SHIM ──────────────────────────────────────────
+# Using absolute path since dynamically updating os.environ['PATH']
+# didn't correctly resolve `subprocess.run(["ffmpeg"])` on Windows.
+FFMPEG_EXE = r"C:\Users\ameyp\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1-full_build\bin\ffmpeg.exe"
+if not os.path.exists(FFMPEG_EXE):
+    FFMPEG_EXE = "ffmpeg"
+# ─────────────────────────────────────────────────────────
+
 import yt_dlp
 from paddleocr import PaddleOCR
 import whisper
@@ -64,7 +72,7 @@ class VideoProcessingService:
             raise Exception(f"YouTube Download Failed: {str(e)}")
 
     def _run_ffmpeg(self, args: list[str]) -> None:
-        command = ["ffmpeg", "-y", *args]
+        command = [FFMPEG_EXE, "-y", *args]
         try:
             subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         except FileNotFoundError:

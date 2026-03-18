@@ -1,16 +1,54 @@
+import sys
+import types
+
+# ── Compatibility shim ──────────────────────────────────────────
+# langchain 1.x removed legacy re-export modules like
+# "langchain.docstore", "langchain.text_splitter", etc.
+# langchain_qdrant and other packages still import from those paths.
+# This patches sys.modules so old import paths still resolve.
+import langchain_community.docstore as _cd
+from langchain_core.documents import Document as _Document
+
+if "langchain.docstore" not in sys.modules:
+    sys.modules["langchain.docstore"] = _cd
+
+if "langchain.docstore.document" not in sys.modules:
+    _mock_doc = types.ModuleType("langchain.docstore.document")
+    _mock_doc.Document = _Document
+    sys.modules["langchain.docstore.document"] = _mock_doc
+
+try:
+    import langchain_text_splitters as _lts
+    if "langchain.text_splitter" not in sys.modules:
+        sys.modules["langchain.text_splitter"] = _lts
+except ImportError:
+    pass
+# ────────────────────────────────────────────────────────────────
+
 import os
 from typing import Any, Dict
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from backend.src.graph.workflow import build_workflow
-
 # Load environment variables
 load_dotenv(override=True)
+# Reduce startup delays caused by remote Paddle model source checks.
+os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+
+from backend.src.graph.workflow import build_workflow
 
 app = FastAPI(title="Multimodal LLMOps API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize the graph
 workflow = build_workflow()

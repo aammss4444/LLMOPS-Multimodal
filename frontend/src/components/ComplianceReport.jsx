@@ -80,9 +80,9 @@ const ComplianceReport = ({ results }) => {
             <div style={{ display: 'flex', height: '100px' }}>
               
               {/* Mini Bar Chart */}
-              <div style={{ flex: 1, height: '100%' }}>
+              <div style={{ flex: 1, height: '100%', minWidth: 0 }}>
                 {barData.length > 0 && (
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={50} minHeight={50}>
                     <BarChart data={barData} margin={{ top: 10, left: 0, right: 0, bottom: 0 }}>
                       <Tooltip cursor={{fill: 'rgba(0,0,0,0.05)'}} contentStyle={{fontSize: '12px', padding: '4px'}} />
                       <Bar dataKey="value" radius={[2, 2, 0, 0]} />
@@ -93,7 +93,7 @@ const ComplianceReport = ({ results }) => {
               
               {/* Mini Donut Chart */}
               <div style={{ width: '80px', height: '80px', position: 'relative', alignSelf: 'center' }}>
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width={80} height={80}>
                   <PieChart>
                     <Pie
                       data={pieData}

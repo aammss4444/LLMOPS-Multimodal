@@ -9,8 +9,9 @@ Project root: `D:\Projects\Multimodal_LLMOPS`
 - End-to-end audit workflow is implemented and callable via `POST /audit`.
 - Local media pipeline is active: YouTube download -> FFmpeg extraction -> Whisper transcription -> PaddleOCR frame text extraction.
 - Fusion and structured-output layers are implemented before compliance audit nodes.
-- RAG audit uses Qdrant knowledge base retrieval with hybrid search support (dense embeddings + keyword sparse retrieval).
+- RAG audit uses Qdrant knowledge base retrieval with hybrid search support (dense embeddings + keyword sparse retrieval) and automatic dense fallback when sparse retrieval is incompatible.
 - PDF indexing now uses OCR fallback (`RapidOCR`) when PaddleOCR runtime fails, so extracted image text can still be ingested.
+- Final compliance status now preserves findings across both audio and visual audit stages (visual node no longer overwrites prior audio verdict).
 - Checkpoint-based execution tracking is implemented in workflow state and API response.
 
 ## Implemented Audit Flow
@@ -44,8 +45,9 @@ Project root: `D:\Projects\Multimodal_LLMOPS`
 [LangGraph Orchestrator]
    |---> [Video Processor: yt-dlp + ffmpeg + whisper + OCR]
    |---> [Fusion Layer + Structured Output Layer]
-   |---> [Qdrant Hybrid Retrieval (Dense + Keyword)]
+   |---> [Qdrant Retrieval: Hybrid (Dense+Sparse) -> Dense Fallback]
    |---> [Gemini 2.5 Flash Audit]
+   |---> [Final Verdict Aggregation: Audio + Visual]
    |
    v
 [JSON Response + Checkpoint Status]
@@ -62,8 +64,8 @@ URL Input -> /audit -> index_video
          -> paddleocr text
          -> fusion_layer
          -> structured_output_layer
-         -> audio_content_audit
-         -> visual_compliance_audit
+         -> audio_content_audit (hybrid retrieval, dense fallback on sparse incompatibility)
+         -> visual_compliance_audit (merge with prior issues/status)
          -> final response
 ```
 
@@ -92,14 +94,14 @@ Tracked checkpoints:
 - API: FastAPI, Uvicorn
 - Orchestration: LangGraph, LangChain
 - LLM: Gemini 2.5 Flash (`langchain-google-genai`)
-- Embeddings + Vector DB: Gemini embeddings + Qdrant hybrid retrieval
+- Embeddings + Vector DB: Gemini embeddings + Qdrant retrieval (hybrid primary, dense fallback)
 - Video ingestion: `yt-dlp`
 - Media processing: `ffmpeg`
 - Audio transcription: `openai-whisper`
 - OCR: `paddleocr`, `paddlepaddle`
 - OCR fallback: `rapidocr-onnxruntime`
 - Document indexing: `PyMuPDF`, `Pillow`, `numpy`, `langchain-text-splitters`
-- Hybrid retrieval support: `langchain-qdrant` `RetrievalMode.HYBRID`, `FastEmbedSparse` (with dense fallback)
+- Retrieval support: `langchain-qdrant` (`RetrievalMode.HYBRID` and `RetrievalMode.DENSE` fallback), `FastEmbedSparse`
 - Package management: `uv`
 
 ## Repository Structure

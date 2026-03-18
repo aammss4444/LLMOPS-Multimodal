@@ -94,6 +94,21 @@ def get_vector_store() -> QdrantVectorStore:
     )
 
 
+@lru_cache(maxsize=1)
+def get_dense_vector_store() -> QdrantVectorStore:
+    client = get_qdrant_client()
+    dense_embeddings = get_dense_embeddings()
+    collection_name = os.getenv("QDRANT_COLLECTION_NAME")
+    vector_name = os.getenv("QDRANT_VECTOR_NAME", "transcript_dense_vector")
+    return QdrantVectorStore(
+        client=client,
+        collection_name=collection_name,
+        embedding=dense_embeddings,
+        retrieval_mode=RetrievalMode.DENSE,
+        vector_name=vector_name,
+    )
+
+
 def parse_json_object_from_llm(content: str) -> Dict[str, Any]:
     text = (content or "").strip()
     if not text:
@@ -311,21 +326,38 @@ def audio_content_node(state: VideoAuditState) -> Dict[str, Any]:
             "errors": [f"RAG initialization error: {str(e)}"],
         }
 
+    top_k = int(os.getenv("QDRANT_TOP_K", "5"))
+    retrieval_mode_used = str(getattr(vector_store, "retrieval_mode", RetrievalMode.DENSE))
     try:
-        top_k = int(os.getenv("QDRANT_TOP_K", "5"))
         docs = vector_store.similarity_search(query_text, k=top_k)
-        if not docs:
-            return {
-                **merge_checkpoint_state(state, updates={"audio_content_audit": "failed"}),
-                "errors": ["RAG retrieval returned no legal/guideline chunks from Qdrant."],
-            }
-        retrieved_rules, rag_rule_references = build_retrieved_rules_context(docs)
     except Exception as e:
         logger.error("Qdrant retrieval failed: %s", str(e))
+        if "query_embed" not in str(e):
+            return {
+                **merge_checkpoint_state(state, updates={"audio_content_audit": "failed"}),
+                "errors": [f"RAG retrieval error: {str(e)}"],
+            }
+
+        logger.warning(
+            "Hybrid sparse retrieval is incompatible in current environment; falling back to dense retrieval."
+        )
+        try:
+            dense_store = get_dense_vector_store()
+            docs = dense_store.similarity_search(query_text, k=top_k)
+            retrieval_mode_used = "dense_fallback"
+        except Exception as dense_error:
+            logger.error("Dense fallback retrieval failed: %s", str(dense_error))
+            return {
+                **merge_checkpoint_state(state, updates={"audio_content_audit": "failed"}),
+                "errors": [f"RAG retrieval error: {str(dense_error)}"],
+            }
+
+    if not docs:
         return {
             **merge_checkpoint_state(state, updates={"audio_content_audit": "failed"}),
-            "errors": [f"RAG retrieval error: {str(e)}"],
+            "errors": ["RAG retrieval returned no legal/guideline chunks from Qdrant."],
         }
+    retrieved_rules, rag_rule_references = build_retrieved_rules_context(docs)
 
     system_prompt = f"""
 You are a senior brand compliance auditor.
@@ -406,11 +438,10 @@ ON-SCREEN TEXT (OCR) : {ocr_text}
         )
     )
 
-    retrieval_mode = getattr(vector_store, "retrieval_mode", RetrievalMode.DENSE)
     checkpoint_detail_update = {
         "rag_top_k": top_k,
         "rag_retrieved_rules_count": len(docs),
-        "rag_retrieval_mode": str(retrieval_mode),
+        "rag_retrieval_mode": retrieval_mode_used,
         "rag_rule_references": rag_rule_references,
     }
 
@@ -429,14 +460,19 @@ ON-SCREEN TEXT (OCR) : {ocr_text}
 def visual_compliance_node(state: VideoAuditState) -> Dict[str, Any]:
     logger.info("---[Node: Visual Auditor] Screening OCR Text")
     ocr_text = state.get("ocr_text", [])
+    existing_issues = [
+        issue for issue in (state.get("compliance_issues") or []) if isinstance(issue, dict)
+    ]
+    existing_status = str(state.get("final_status", "PASS")).upper()
+    existing_report = str(state.get("final_report") or "").strip()
 
     restricted_keywords = ["alcohol", "tobacco", "gambling", "adult"]
-    issues = []
+    visual_issues = []
 
     for line in ocr_text:
         for word in restricted_keywords:
             if word.lower() in line.lower():
-                issues.append(
+                visual_issues.append(
                     {
                         "category": "Visual Compliance",
                         "description": f"Restricted content detected in visual text: '{line}'",
@@ -445,9 +481,18 @@ def visual_compliance_node(state: VideoAuditState) -> Dict[str, Any]:
                     }
                 )
 
+    combined_issues = existing_issues + visual_issues
+    final_status = "FAIL" if combined_issues or existing_status == "FAIL" else "PASS"
+    if visual_issues:
+        final_report = "Visual screening detected restricted content."
+        if existing_report:
+            final_report = f"{existing_report}\n{final_report}"
+    else:
+        final_report = existing_report or "Visual screening complete."
+
     return {
         **merge_checkpoint_state(state, updates={"visual_compliance_audit": "completed"}),
-        "compliance_issues": issues,
-        "final_status": "FAIL" if issues else "PASS",
-        "final_report": "Visual screening complete.",
+        "compliance_issues": combined_issues,
+        "final_status": final_status,
+        "final_report": final_report,
     }

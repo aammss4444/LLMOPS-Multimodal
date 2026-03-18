@@ -9,7 +9,7 @@ import ComplianceReport from './components/ComplianceReport';
 import VideoInput from './components/VideoInput';
 import { Download, AlertTriangle, AlertCircle } from 'lucide-react';
 
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 function App() {
   const [appState, setAppState] = useState('idle'); // 'idle' | 'loading' | 'success' | 'error'

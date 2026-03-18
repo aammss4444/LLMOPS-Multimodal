@@ -2,3 +2,9 @@
 .venv/
 __pycache__/
 *.pyc
+backend/data/audio/
+backend/data/frames/
+backend/data/videos/
+test_result*.json
+test_backend_full.json
+user_audit_result*.json
